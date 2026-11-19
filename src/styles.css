@@ -829,7 +829,7 @@ kbd,
 
 .popout {
   position: absolute;
-  left: 60px;
+  left: 76px;
   top: -12px;
   width: 316px;
   display: flex;
@@ -854,10 +854,10 @@ kbd,
 .popout::before {
   content: '';
   position: absolute;
-  left: -18px;
+  left: -36px;
   top: 0;
   bottom: 0;
-  width: 18px;
+  width: 36px;
 }
 
 .popout-title {
