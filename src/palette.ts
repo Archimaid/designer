@@ -11,47 +11,54 @@ export interface DropTarget {
 const dragThreshold = 4;
 
 // Tiles start a pointer drag; a ghost copy follows the pointer and the drop lands where the pointer is,
-// unless it is released over a floating panel.
+// unless it is released over a floating panel. The drag is followed on the window, not the tile: a tile in
+// the collapsed palette's popout hides as soon as the pointer leaves it, and a hidden tile gets no release.
 export function makeDraggable(tile: HTMLElement, payload: () => DragPayload, target: DropTarget): void {
   tile.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
+    const { pointerId } = event;
     const start = { x: event.clientX, y: event.clientY };
     let ghost: HTMLElement | undefined;
-    tile.setPointerCapture(event.pointerId);
     const move = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return;
       if (!ghost && Math.hypot(moveEvent.clientX - start.x, moveEvent.clientY - start.y) < dragThreshold) return;
       if (!ghost) {
-        ghost = tile.cloneNode(true) as HTMLElement;
+        const copy = tile.cloneNode(true);
+        if (!(copy instanceof HTMLElement)) return;
+        ghost = copy;
         ghost.classList.add('drag-ghost');
         ghost.removeAttribute('id');
         document.body.append(ghost);
+        document.body.classList.add('is-dragging-type');
       }
       ghost.style.left = `${moveEvent.clientX}px`;
       ghost.style.top = `${moveEvent.clientY}px`;
     };
+    const finish = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', cancel);
+      ghost?.remove();
+      document.body.classList.remove('is-dragging-type');
+    };
     const end = (endEvent: PointerEvent) => {
-      tile.removeEventListener('pointermove', move);
-      tile.removeEventListener('pointerup', end);
-      tile.removeEventListener('pointercancel', cancel);
-      if (tile.hasPointerCapture(endEvent.pointerId)) tile.releasePointerCapture(endEvent.pointerId);
-      if (!ghost) {
+      if (endEvent.pointerId !== pointerId) return;
+      const dragged = Boolean(ghost);
+      finish();
+      if (!dragged) {
         target.drop(payload(), undefined);
         return;
       }
-      ghost.remove();
       const under = document.elementFromPoint(endEvent.clientX, endEvent.clientY);
       if (under && !under.closest('.float')) target.drop(payload(), { x: endEvent.clientX, y: endEvent.clientY });
     };
-    const cancel = () => {
-      ghost?.remove();
-      tile.removeEventListener('pointermove', move);
-      tile.removeEventListener('pointerup', end);
-      tile.removeEventListener('pointercancel', cancel);
+    const cancel = (cancelEvent: PointerEvent) => {
+      if (cancelEvent.pointerId === pointerId) finish();
     };
-    tile.addEventListener('pointermove', move);
-    tile.addEventListener('pointerup', end);
-    tile.addEventListener('pointercancel', cancel);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', cancel);
   });
   tile.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') {

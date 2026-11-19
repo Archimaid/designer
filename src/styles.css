@@ -890,6 +890,18 @@ kbd,
     visibility 0s linear 0s;
 }
 
+/* While a type is dragged, popouts close so the canvas under them can take the drop. */
+body.is-dragging-type,
+body.is-dragging-type * {
+  cursor: grabbing !important;
+}
+
+body.is-dragging-type .popout {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 .drag-ghost {
   position: fixed;
   z-index: 50;
