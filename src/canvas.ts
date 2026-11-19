@@ -1,25 +1,11 @@
+import { gridUnit, layoutPadding, type Box, type Point, type Side, type Snapped } from './geometry.ts';
+
 // The rendered SVG sits on a stage whose coordinates are the renderer's layout coordinates, so grid maths,
 // overlays and hit-testing all share one space. Pan and zoom are a CSS transform on the stage.
-
-export interface Point {
-  readonly x: number;
-  readonly y: number;
-}
-
-export interface Box extends Point {
-  readonly width: number;
-  readonly height: number;
-}
-
-export interface Snapped {
-  readonly box: Box;
-  readonly label: string;
-}
 
 export type End = 'source' | 'target';
 export type Tool = 'select' | 'hand';
 export type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
-export type Side = 'T' | 'R' | 'B' | 'L';
 
 export interface CanvasEvents {
   readonly select: (id: string | null) => void;
@@ -37,9 +23,6 @@ export interface CanvasEvents {
   readonly rename: (id: string) => void;
 }
 
-// The renderer leaves this margin around a custom layout before the first grid line.
-export const layoutPadding = 24;
-export const gridUnit = 20;
 const minZoom = 0.25;
 const maxZoom = 3;
 const dragThreshold = 4;

@@ -1,4 +1,5 @@
 import { elementTypes, relationshipConnectors, relationshipTypes } from 'archimaid/language';
+import { connectorGlyphs, escapeRegExp, identifier, quotedText } from './grammar.ts';
 
 // Every canvas gesture is one of these pure text edits. The source stays the only state, so the text panel,
 // undo, share links and the renderer all see exactly what the designer wrote.
@@ -10,9 +11,7 @@ export interface GridPoint {
 
 export type LayoutName = 'architecture' | 'framework' | 'graph' | 'custom';
 
-const quotedText = String.raw`"(?:[^"\\]|\\.)*"`;
-const identifierPattern = /[A-Za-z_]\w*(?:-\w+)*/gu;
-const connectorGlyphs = Object.keys(relationshipConnectors).sort((left, right) => right.length - left.length);
+const identifierPattern = new RegExp(identifier, 'gu');
 const defaultIndent = '  ';
 
 // IDs never reuse a type name or a keyword, so a reader can always tell an ID from what it describes.
@@ -39,10 +38,6 @@ function layerRank(type: string): number {
   const category = Object.entries(elementTypes).find(([key]) => key === type)?.[1].category;
   const rank = category ? layerOrder.indexOf(category) : -1;
   return rank < 0 ? layerOrder.length : rank;
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 function lines(source: string): string[] {

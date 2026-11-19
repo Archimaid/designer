@@ -4,6 +4,7 @@ import {
   type ArchiMateModel,
   type ArchiMateRelationship,
 } from 'archimaid/language';
+import { connectorGlyphs, escapeRegExp, identifier, quotedText } from './grammar.ts';
 
 export type Notation = 'long' | 'shorthand';
 
@@ -17,13 +18,10 @@ export type NotationResult =
 
 type Connector = keyof typeof relationshipConnectors;
 
-const id = String.raw`[a-zA-Z_]\w*(?:-\w+)*`;
-const quoted = String.raw`"(?:[^"\\\r\n]|\\.)*"`;
+const id = identifier;
+const quoted = quotedText;
 const comment = String.raw`(\s+%%.*)?`;
-const connectorPattern = (Object.keys(relationshipConnectors) as Connector[])
-  .sort((left, right) => right.length - left.length)
-  .map((connector) => connector.replace(/[.*+?^${}()|[\]\\/]/gu, '\\$&'))
-  .join('|');
+const connectorPattern = connectorGlyphs.map(escapeRegExp).join('|');
 
 const longFormLine = new RegExp(
   String.raw`^(\s*)relationship\s+(${id})\s+(${id})\s+(${id})\s*->\s*(${id})(?:\s+access\s+(${id}))?(\s+directed)?(?:\s+label\s+(${quoted}))?${comment}$`,
