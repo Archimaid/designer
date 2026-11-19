@@ -181,7 +181,6 @@
       </label>
       <div class="chips" id="add-chips" role="tablist" aria-label="Layer"></div>
       <div class="tiles sheet-tiles" id="add-tiles"></div>
-      <p class="sheet-hint">Tap a type to place it in the middle of the view. You name it straight away.</p>
     </section>
 
     <section class="float sheet selection-bar panel-anim is-hidden" id="selection-bar" aria-label="Selected element">
@@ -211,9 +210,6 @@
           </svg>
         </button>
       </div>
-      <p class="sheet-hint">
-        Drag the element to move it. Drag a round handle to another element to connect, or a corner to resize.
-      </p>
     </section>
 
     <div class="float actions appear d1">
@@ -314,16 +310,13 @@
       </div>
       <label class="field">Name<input class="input" id="field-name" autocomplete="off" /></label>
       <label class="field">Description<textarea class="input" id="field-description" rows="3"></textarea></label>
-      <div class="section">
-        <div class="info">Position<b id="info-position"></b></div>
-        <div class="info">Size<b id="info-size"></b></div>
-        <span class="hint">Drag on the canvas to move.</span>
-      </div>
-      <div class="section">
-        <span class="section-title">Relationships</span>
-        <div id="relations" style="display: flex; flex-direction: column; gap: 6px"></div>
-        <span class="hint">Drag from a handle to connect.</span>
-      </div>
+      <details class="disclosure" id="relations-section" hidden>
+        <summary>
+          Relationships<span class="disclosure-count" id="relations-count"></span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+        </summary>
+        <div class="relations" id="relations"></div>
+      </details>
       <div class="section inspector-foot">
         <span class="saved-note">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>
@@ -356,9 +349,6 @@
       </div>
       <label class="field">Label<input class="input" id="rel-label" autocomplete="off" placeholder="Optional" /></label>
       <button class="btn" type="button" id="rel-retype" style="justify-content: center">Change type</button>
-      <span class="hint">
-        Drag an end onto another element to reconnect it, or onto a side of its own element to pin that side.
-      </span>
       <div class="section inspector-foot">
         <span class="saved-note">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>

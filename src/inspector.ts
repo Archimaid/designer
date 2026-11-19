@@ -6,7 +6,7 @@ import {
 } from 'archimaid/language';
 import { paletteType, tileIcon, type PaletteType } from './catalogue.ts';
 import { sideNames } from './format.ts';
-import { glyphOf, nameOf, parentsOf, positionOf } from './model.ts';
+import { glyphOf, nameOf } from './model.ts';
 import { readAnchor, readDescription, readRelationshipLine } from './source.ts';
 import { ui } from './ui.ts';
 
@@ -36,23 +36,11 @@ export function renderElementInspector(element: ArchiMateElement, model: ArchiMa
   // A field being typed in keeps its text until it is saved.
   if (document.activeElement !== ui.fieldName) ui.fieldName.value = element.name;
   if (document.activeElement !== ui.fieldDescription) ui.fieldDescription.value = readDescription(source, element.id);
-  const position = positionOf(model, element.id);
-  const nested = parentsOf(model).has(element.id);
-  ui.infoPosition.textContent = position
-    ? `${position.x}, ${position.y}${nested ? ' in parent' : ''}`
-    : model.layout === 'custom'
-      ? 'not placed'
-      : 'auto';
-  ui.infoSize.textContent = position?.width ? `${position.width}x${position.height}` : 'auto';
   const rows = model.relationships
     .filter((relationship) => relationship.source === element.id || relationship.target === element.id)
     .map((relationship) => relationRow(model, element.id, relationship));
-  if (!rows.length) {
-    const none = document.createElement('span');
-    none.className = 'hint';
-    none.textContent = 'None yet.';
-    rows.push(none);
-  }
+  ui.relationsSection.hidden = !rows.length;
+  ui.relationsCount.textContent = String(rows.length);
   ui.relations.replaceChildren(...rows);
 }
 
