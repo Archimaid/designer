@@ -11,7 +11,16 @@ import {
   type ArchiMateModel,
   type ArchiMateRelationship,
 } from 'archimaid/language';
-import { DiagramCanvas, gridUnit, layoutPadding, type End, type Point, type Side, type Snapped } from './canvas.ts';
+import {
+  DiagramCanvas,
+  gridUnit,
+  layoutPadding,
+  type End,
+  type Point,
+  type Side,
+  type Snapped,
+  type Tool,
+} from './canvas.ts';
 import { paletteType, tileIcon } from './catalogue.ts';
 import { createSourceEditor } from './editor.ts';
 import { copyText } from './clipboard.ts';
@@ -23,6 +32,7 @@ import { decodeShareHash, encodeShareHash } from './share.ts';
 import {
   addElement,
   addRelationship,
+  clearDiagram,
   countRelationshipLines,
   readAnchor,
   readRelationshipLabel,
@@ -74,6 +84,10 @@ const ui = {
   layoutCustom: byId<HTMLButtonElement>('layout-custom'),
   undo: byId<HTMLButtonElement>('undo'),
   redo: byId<HTMLButtonElement>('redo'),
+  clear: byId<HTMLButtonElement>('clear'),
+  mClear: byId<HTMLButtonElement>('m-clear'),
+  toolSelect: byId<HTMLButtonElement>('tool-select'),
+  toolHand: byId<HTMLButtonElement>('tool-hand'),
   textToggle: byId<HTMLButtonElement>('text-toggle'),
   textBadge: byId('text-badge'),
   exportToggle: byId<HTMLButtonElement>('export-toggle'),
@@ -170,6 +184,8 @@ let model: ArchiMateModel | undefined;
 let diagnostics: readonly ArchiMateDiagnostic[] = [];
 let lastSvg: string | undefined;
 let selected: string | null = null;
+// Two or more selected elements; while it holds any, `selected` is null and no inspector shows.
+let group: readonly string[] = [];
 // A relationship is selected by its place among the relationships, which survives edits that change its ID.
 let selectedRelationship: number | null = null;
 let textOpen = false;
@@ -182,6 +198,11 @@ const afterRender: (() => void)[] = [];
 
 const canvas: DiagramCanvas = new DiagramCanvas(ui.canvas, ui.stage, ui.overlay, {
   select: (id) => select(id),
+  toggle: (id) => {
+    const current = selection();
+    selectMany(current.includes(id) ? current.filter((other) => other !== id) : [...current, id]);
+  },
+  selectMany: (ids) => selectMany(ids),
   snap: (id, topLeft): Snapped => {
     const raw = rawGridFor(id, topLeft);
     const grid = parents().has(id) ? gridFor(id, topLeft) : raw;
@@ -197,7 +218,8 @@ const canvas: DiagramCanvas = new DiagramCanvas(ui.canvas, ui.stage, ui.overlay,
       label: grid.x < 0 || grid.y < 0 ? 'Moves the others to make room' : `${id} at ${grid.x} ${grid.y}`,
     };
   },
-  move: (id, topLeft) => moveElement(id, topLeft),
+  move: (lead, topLeft, followers) =>
+    followers.length ? moveGroup(lead, topLeft, followers) : moveElement(lead, topLeft),
   snapResize: (id, box): Snapped => {
     const grid = parents().has(id) ? gridFor(id, box) : rawGridFor(id, box);
     const origin = gridOrigin(id);
@@ -272,16 +294,16 @@ function gridFor(id: string, topLeft: Point): GridPoint {
 
 // The canvas has no edge: a top-level element placed above or left of the others shifts them all by the
 // same amount, and the view moves with them so nothing appears to jump. Nested elements stay in their parent.
-function placeAt(text: string, id: string, raw: GridPoint): { text: string; grid: GridPoint } {
-  if (parents().has(id)) {
-    const grid = { x: Math.max(0, raw.x), y: Math.max(0, raw.y) };
-    return { text: setPosition(text, id, grid), grid };
-  }
-  const dx = Math.max(0, -raw.x);
-  const dy = Math.max(0, -raw.y);
+function placeAll(
+  text: string,
+  targets: ReadonlyMap<string, GridPoint>,
+): { text: string; placed: Map<string, GridPoint> } {
+  const nested = parents();
+  const topLevelTargets = [...targets].filter(([id]) => !nested.has(id)).map(([, raw]) => raw);
+  const dx = Math.max(0, ...topLevelTargets.map((raw) => -raw.x));
+  const dy = Math.max(0, ...topLevelTargets.map((raw) => -raw.y));
   let next = text;
   if (dx || dy) {
-    const nested = parents();
     const topLevel = new Set([
       ...(model?.elements ?? []).filter((element) => !nested.has(element.id)).map((element) => element.id),
       ...(model?.notes ?? []).filter((note) => !note.on).map((note) => note.id),
@@ -289,8 +311,20 @@ function placeAt(text: string, id: string, raw: GridPoint): { text: string; grid
     next = shiftPositions(next, dx, dy, topLevel);
     afterRender.push(() => canvas.shiftView(dx * gridUnit, dy * gridUnit));
   }
-  const grid = { x: raw.x + dx, y: raw.y + dy };
-  return { text: setPosition(next, id, grid), grid };
+  const placed = new Map<string, GridPoint>();
+  for (const [id, raw] of targets) {
+    const grid = nested.has(id) ? { x: Math.max(0, raw.x), y: Math.max(0, raw.y) } : { x: raw.x + dx, y: raw.y + dy };
+    placed.set(id, grid);
+    next = setPosition(next, id, grid);
+  }
+  return { text: next, placed };
+}
+
+function placeAt(text: string, id: string, raw: GridPoint): { text: string; grid: GridPoint } {
+  const { text: next, placed } = placeAll(text, new Map([[id, raw]]));
+  const grid = placed.get(id);
+  if (!grid) throw new Error(`placeAll did not place ${id}.`);
+  return { text: next, grid };
 }
 
 // Pins every element at the place automatic layout put it, so switching to custom layout moves nothing.
@@ -389,21 +423,58 @@ function gridSize(box: { width: number; height: number }): GridSize {
 }
 
 // Moving and resizing share one edit: resizing from the top or left edge moves the element too.
-function moveElement(id: string, topLeft: Point, size?: GridSize): void {
-  const custom = model?.layout === 'custom';
-  let next = custom ? source : toCustomLayout(source, id);
-  // A position inside an unpositioned parent is ignored, so the parent is pinned where it is.
+// A position inside an unpositioned parent is ignored, so the parents are pinned where they are.
+function pinParents(text: string, id: string): string {
+  let next = text;
   for (let parent = parents().get(id); parent; parent = parents().get(parent)) {
     const box = canvas.boxes.get(parent);
     if (box && !positionOf(parent)) next = setPosition(next, parent, gridFor(parent, box));
   }
+  return next;
+}
+
+function moveElement(id: string, topLeft: Point, size?: GridSize): void {
+  const custom = model?.layout === 'custom';
+  const next = pinParents(custom ? source : toCustomLayout(source, id), id);
   const placed = placeAt(next, id, rawGridFor(id, topLeft));
   const { grid } = placed;
-  next = size ? setSize(placed.text, id, size) : placed.text;
+  const result = size ? setSize(placed.text, id, size) : placed.text;
   const done = size
     ? `Resized ${nameOf(id)} · size ${size.width}x${size.height}`
     : `Moved ${nameOf(id)} · ${id} at ${grid.x} ${grid.y}`;
-  commit(next, custom ? layoutNote(done) : 'Switched to custom layout');
+  commit(result, custom ? layoutNote(done) : 'Switched to custom layout');
+}
+
+// Every selected element moves by the grid distance the dragged one snapped to. An element whose parent
+// is also selected already moves with that parent, because nested positions are relative.
+function moveGroup(lead: string, topLeft: Point, followers: readonly string[]): void {
+  const leadBox = canvas.boxes.get(lead);
+  if (!leadBox) return;
+  const from = rawGridFor(lead, leadBox);
+  const to = rawGridFor(lead, topLeft);
+  const delta = { x: to.x - from.x, y: to.y - from.y };
+  if (!delta.x && !delta.y) {
+    void refresh();
+    return;
+  }
+  const chosen = new Set([lead, ...followers]);
+  const nested = parents();
+  const hasChosenAncestor = (id: string): boolean => {
+    for (let parent = nested.get(id); parent; parent = nested.get(parent)) if (chosen.has(parent)) return true;
+    return false;
+  };
+  const custom = model?.layout === 'custom';
+  let next = custom ? source : toCustomLayout(source);
+  const targets = new Map<string, GridPoint>();
+  for (const id of chosen) {
+    const box = canvas.boxes.get(id);
+    if (!box || hasChosenAncestor(id)) continue;
+    next = pinParents(next, id);
+    const at = rawGridFor(id, box);
+    targets.set(id, { x: at.x + delta.x, y: at.y + delta.y });
+  }
+  const placed = placeAll(next, targets);
+  commit(placed.text, custom ? layoutNote(`Moved ${chosen.size} elements`) : 'Switched to custom layout');
 }
 
 function dropOnCanvas(payload: DragPayload, client: Point | undefined): void {
@@ -459,11 +530,21 @@ function startRename(id: string): void {
 }
 
 function deleteSelected(): void {
-  if (!selected) return;
-  const id = selected;
-  const name = nameOf(id);
+  const ids = selection();
+  const [first] = ids;
+  if (first === undefined) return;
+  const message = ids.length === 1 ? `Deleted ${nameOf(first)}` : `Deleted ${ids.length} elements`;
   select(null, false);
-  commit(removeElement(source, id), `Deleted ${name}`);
+  commit(
+    ids.reduce((text, id) => removeElement(text, id), source),
+    message,
+  );
+}
+
+function clearCanvas(): void {
+  select(null, false);
+  commit(clearDiagram(source), undefined);
+  showToast('Cleared the canvas', { label: 'Undo', run: undo });
 }
 
 // Selection and the inspector
@@ -486,13 +567,36 @@ function saveInspector(): void {
   }
 }
 
+function selection(): readonly string[] {
+  if (group.length) return group;
+  return selected ? [selected] : [];
+}
+
 function select(id: string | null, save = true): void {
   if (save && id !== selected) saveInspector();
   if (save) saveRelationshipInspector();
   if (id !== selected) detailsOpen = false;
   selected = id;
+  group = [];
   selectedRelationship = null;
-  canvas.setSelection(id);
+  canvas.setSelection(selection());
+  showInspector();
+  showRelationshipInspector();
+}
+
+function selectMany(ids: readonly string[]): void {
+  const unique = [...new Set(ids)];
+  if (unique.length < 2) {
+    select(unique[0] ?? null);
+    return;
+  }
+  saveInspector();
+  saveRelationshipInspector();
+  detailsOpen = false;
+  selected = null;
+  group = unique;
+  selectedRelationship = null;
+  canvas.setSelection(group);
   showInspector();
   showRelationshipInspector();
 }
@@ -686,10 +790,15 @@ async function refresh(): Promise<void> {
   lastSvg = outcome.svg;
   canvas.setSvg(outcome.svg);
   if (selected && !canvas.boxes.has(selected)) selected = null;
+  group = group.filter((id) => canvas.boxes.has(id));
+  if (group.length === 1) {
+    selected = group[0] ?? null;
+    group = [];
+  }
   const relationship = selectedRelationship === null ? undefined : model?.relationships[selectedRelationship];
   if (!relationship) selectedRelationship = null;
   if (relationship) canvas.setRelationshipSelection(relationship.id);
-  else canvas.setSelection(selected);
+  else canvas.setSelection(selection());
   showInspector();
   showRelationshipInspector();
   updateTray();
@@ -734,6 +843,9 @@ function updateChrome(): void {
   ui.layoutAuto.setAttribute('aria-pressed', String(!custom));
   ui.undo.disabled = undoStack.length === 0;
   ui.redo.disabled = redoStack.length === 0;
+  const empty = clearDiagram(source) === source;
+  ui.clear.disabled = empty;
+  ui.mClear.disabled = empty;
 }
 
 function updateTray(): void {
@@ -872,10 +984,17 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (isTyping(event.target)) return;
-  if ((event.key === 'Delete' || event.key === 'Backspace') && selectedRelationship !== null) {
+  if (!command && !event.altKey && event.key.toLowerCase() === 'v') {
+    setTool('select');
+  } else if (!command && !event.altKey && event.key.toLowerCase() === 'h') {
+    setTool('hand');
+  } else if (command && event.key.toLowerCase() === 'a') {
+    event.preventDefault();
+    selectMany((model?.elements ?? []).map(({ id }) => id).filter((id) => canvas.boxes.has(id)));
+  } else if ((event.key === 'Delete' || event.key === 'Backspace') && selectedRelationship !== null) {
     event.preventDefault();
     deleteRelationship();
-  } else if ((event.key === 'Delete' || event.key === 'Backspace') && selected) {
+  } else if ((event.key === 'Delete' || event.key === 'Backspace') && selection().length) {
     event.preventDefault();
     deleteSelected();
   } else if (event.key === 'Enter' && selected) {
@@ -1060,7 +1179,71 @@ buildPalette(
   { drop: dropOnCanvas },
 );
 
-window.addEventListener('resize', () => canvas.setSelection(selected));
+window.addEventListener('resize', () => canvas.setSelection(selection()));
+
+const confirmMs = 3000;
+
+// A destructive button asks once: the first press turns it into a red "Are you sure?", the second runs it.
+// It falls back after a few seconds, or when the next press lands anywhere else.
+function confirmTwice(button: HTMLButtonElement, run: () => void): void {
+  const label = button.querySelector('.label');
+  if (!label) throw new Error(`#${button.id} needs a .label to confirm with.`);
+  const idle = label.textContent;
+  let timer: number | undefined;
+  const disarm = () => {
+    clearTimeout(timer);
+    button.classList.remove('is-armed');
+    label.textContent = idle;
+  };
+  button.addEventListener('click', () => {
+    if (!button.classList.contains('is-armed')) {
+      button.classList.add('is-armed');
+      label.textContent = 'Are you sure?';
+      timer = window.setTimeout(disarm, confirmMs);
+      return;
+    }
+    disarm();
+    run();
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (!(event.target instanceof Node && button.contains(event.target))) disarm();
+  });
+}
+
+confirmTwice(ui.clear, clearCanvas);
+confirmTwice(ui.mClear, () => {
+  setMoreMenu(false);
+  clearCanvas();
+});
+
+function setTool(tool: Tool): void {
+  canvas.tool = tool;
+  ui.toolSelect.setAttribute('aria-pressed', String(tool === 'select'));
+  ui.toolHand.setAttribute('aria-pressed', String(tool === 'hand'));
+}
+ui.toolSelect.addEventListener('click', () => setTool('select'));
+ui.toolHand.addEventListener('click', () => setTool('hand'));
+// A finger has no scroll wheel, so touch screens start with the hand and a one-finger drag moves the canvas.
+setTool(matchMedia('(pointer: coarse)').matches ? 'hand' : 'select');
+
+// Space moves the canvas only while it is held, and only when it would not press a focused control.
+function holdsSpace(event: KeyboardEvent): boolean {
+  return (
+    event.key === ' ' &&
+    (event.target === document.body || (event.target instanceof Node && ui.canvas.contains(event.target)))
+  );
+}
+document.addEventListener('keydown', (event) => {
+  if (!holdsSpace(event)) return;
+  event.preventDefault();
+  canvas.spaceHeld = true;
+});
+document.addEventListener('keyup', (event) => {
+  if (event.key === ' ') canvas.spaceHeld = false;
+});
+window.addEventListener('blur', () => {
+  canvas.spaceHeld = false;
+});
 
 async function start(): Promise<void> {
   ui.title.value = readStored(titleKey) ?? 'Order fulfilment';

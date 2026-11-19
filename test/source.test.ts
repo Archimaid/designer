@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { validateArchiMate } from 'archimaid/language';
 import {
   addElement,
+  clearDiagram,
   addRelationship,
   readAnchor,
   readRelationshipLabel,
@@ -182,4 +183,11 @@ test('sets a size on a position and replaces an earlier one', () => {
   assert.ok(sized.includes('    clerk at 0 0 size 9x4\n'));
   assert.ok(setSize(sized, 'clerk', { width: 0, height: 5 }).includes('    clerk at 0 0 size 1x5\n'));
   assert.deepEqual(errors(sized), []);
+});
+
+test('clearing keeps the header and the layout setting only', () => {
+  const cleared = clearDiagram(`%% kept\n${base}`);
+  assert.equal(cleared, '%% kept\narchimate-beta\n  layout custom');
+  assert.deepEqual(errors(cleared), []);
+  assert.equal(clearDiagram('not a diagram'), 'not a diagram');
 });

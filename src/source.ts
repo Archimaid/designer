@@ -328,6 +328,18 @@ export function addRelationship(source: string, from: string, connector: string,
   return join(result);
 }
 
+// An empty diagram keeps whatever precedes the header (front matter, comments) and the diagram-wide settings.
+export function clearDiagram(source: string): string {
+  const result = lines(source);
+  const header = headerIndex(result);
+  if (header < 0) return source;
+  const depth = depths(result);
+  const settings = result.filter(
+    (line, index) => index > header && depth[index] === 0 && /^\s*(?:layout|direction)\s+\S+/u.test(code(line)),
+  );
+  return join([...result.slice(0, header + 1), ...settings]);
+}
+
 // Removes the element, its block and everything that refers to it or to its nested elements.
 export function removeElement(source: string, id: string): string {
   const result = lines(source);
