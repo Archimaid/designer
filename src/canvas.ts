@@ -16,8 +16,14 @@ export interface Snapped {
   readonly label: string;
 }
 
+export type End = 'source' | 'target';
+export type Side = 'T' | 'R' | 'B' | 'L';
+
 export interface CanvasEvents {
   readonly select: (id: string | null) => void;
+  readonly selectRelationship: (id: string) => void;
+  // An end dropped on an element: another element reconnects it, its own element pins the side.
+  readonly reconnect: (id: string, end: End, element: string, side: Side) => void;
   readonly snap: (id: string, topLeft: Point) => Snapped;
   readonly move: (id: string, topLeft: Point) => void;
   readonly connect: (from: string, to: string, client: Point) => void;
@@ -37,11 +43,37 @@ type Gesture =
   | { readonly kind: 'pan'; readonly start: Point; readonly pan: Point; moved: boolean }
   | { readonly kind: 'press'; readonly id: string; readonly start: Point; readonly box: Box }
   | { readonly kind: 'drag'; readonly id: string; readonly start: Point; readonly box: Box; target: Point }
-  | { readonly kind: 'connect'; readonly from: string; readonly origin: Point };
+  | { readonly kind: 'connect'; readonly from: string; readonly origin: Point }
+  | { readonly kind: 'reconnect'; readonly id: string; readonly end: End; readonly origin: Point };
 
 function parseTranslate(element: Element): Point | undefined {
   const match = /translate\(\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*\)/u.exec(element.getAttribute('transform') ?? '');
   return match ? { x: Number(match[1]), y: Number(match[2]) } : undefined;
+}
+
+function relationshipId(target: EventTarget | null): string | undefined {
+  if (!(target instanceof Element)) return undefined;
+  const hit = target.closest('[data-hit-for], [data-archimate-relationship]');
+  return hit?.getAttribute('data-hit-for') ?? hit?.getAttribute('data-archimate-relationship') ?? undefined;
+}
+
+// The side of a box nearest to a point, in the T/R/B/L letters of the positions block.
+export function nearestSide(box: Box, point: Point): Side {
+  const distances: readonly (readonly [Side, number])[] = [
+    ['T', Math.abs(point.y - box.y)],
+    ['R', Math.abs(point.x - (box.x + box.width))],
+    ['B', Math.abs(point.y - (box.y + box.height))],
+    ['L', Math.abs(point.x - box.x)],
+  ];
+  return distances.reduce((best, entry) => (entry[1] < best[1] ? entry : best))[0];
+}
+
+function pathEnds(path: SVGPathElement): { start: Point; end: Point } | undefined {
+  const numbers = (path.getAttribute('d') ?? '').match(/-?\d*\.?\d+(?:e-?\d+)?/giu)?.map(Number) ?? [];
+  const [x1, y1] = numbers;
+  const [x2, y2] = numbers.slice(-2);
+  if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) return undefined;
+  return { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } };
 }
 
 function elementId(target: EventTarget | null): string | undefined {
@@ -51,6 +83,8 @@ function elementId(target: EventTarget | null): string | undefined {
 
 export class DiagramCanvas {
   readonly boxes = new Map<string, Box>();
+  private readonly edges = new Map<string, { start: Point; end: Point }>();
+  private selectedRelationship: string | null = null;
   private readonly headers = new Map<string, number>();
   private svg: SVGSVGElement | undefined;
   private pan: Point = { x: 360, y: 140 };
@@ -111,7 +145,20 @@ export class DiagramCanvas {
     const svg = this.svg;
     this.boxes.clear();
     this.headers.clear();
+    this.edges.clear();
     if (!svg) return;
+    // Lines are two pixels wide; an invisible wide copy on top makes them easy to pick.
+    for (const path of svg.querySelectorAll<SVGPathElement>('path[data-archimate-relationship]')) {
+      const id = path.getAttribute('data-archimate-relationship');
+      const ends = pathEnds(path);
+      if (!id || !ends) continue;
+      this.edges.set(id, ends);
+      const hit = document.createElementNS(svgNamespace, 'path');
+      hit.setAttribute('d', path.getAttribute('d') ?? '');
+      hit.setAttribute('class', 'edge-hit');
+      hit.setAttribute('data-hit-for', id);
+      path.after(hit);
+    }
     let offset: Point | undefined;
     for (const group of svg.querySelectorAll<SVGGElement>('[data-archimate-element]')) {
       const id = group.getAttribute('data-archimate-element');
@@ -139,12 +186,39 @@ export class DiagramCanvas {
 
   setSelection(id: string | null): void {
     this.selected = id;
+    this.selectedRelationship = null;
+    this.drawSelection();
+  }
+
+  setRelationshipSelection(id: string | null): void {
+    this.selectedRelationship = id;
+    this.selected = null;
     this.drawSelection();
   }
 
   private drawSelection(): void {
     this.ring.remove();
     for (const handle of this.overlay.querySelectorAll('.handle')) handle.remove();
+    for (const path of this.svg?.querySelectorAll('.is-selected') ?? []) path.classList.remove('is-selected');
+    const edge = this.selectedRelationship ? this.edges.get(this.selectedRelationship) : undefined;
+    if (edge && this.selectedRelationship) {
+      this.svg
+        ?.querySelector(`path[data-archimate-relationship="${CSS.escape(this.selectedRelationship)}"]`)
+        ?.classList.add('is-selected');
+      for (const [end, point] of [
+        ['source', edge.start],
+        ['target', edge.end],
+      ] as const) {
+        const handle = document.createElement('span');
+        handle.className = 'handle endpoint';
+        handle.dataset.end = end;
+        handle.title = 'Drag onto another element to reconnect, or onto a side of this one to pin it';
+        handle.style.left = `${point.x}px`;
+        handle.style.top = `${point.y}px`;
+        this.overlay.append(handle);
+      }
+      return;
+    }
     const box = this.selected ? this.boxes.get(this.selected) : undefined;
     if (!box) return;
     const inset = 6;
@@ -285,7 +359,18 @@ export class DiagramCanvas {
     const client = { x: event.clientX, y: event.clientY };
     const target = event.target instanceof Element ? event.target : null;
     const handle = target?.closest('.handle');
-    if (handle && this.selected) {
+    const end = handle instanceof HTMLElement ? handle.dataset.end : undefined;
+    const edge = this.selectedRelationship ? this.edges.get(this.selectedRelationship) : undefined;
+    if ((end === 'source' || end === 'target') && edge && this.selectedRelationship) {
+      // The line is redrawn from the end that stays put.
+      const origin = end === 'source' ? edge.end : edge.start;
+      this.gesture = { kind: 'reconnect', id: this.selectedRelationship, end, origin };
+      this.svg
+        ?.querySelector(`path[data-archimate-relationship="${CSS.escape(this.selectedRelationship)}"]`)
+        ?.classList.add('is-moving');
+      this.overlay.append(this.line);
+      this.updateLine(this.layoutPoint(client.x, client.y));
+    } else if (handle && this.selected) {
       const box = this.boxes.get(this.selected);
       if (!box) return;
       this.gesture = { kind: 'connect', from: this.selected, origin: this.layoutPoint(client.x, client.y) };
@@ -294,9 +379,13 @@ export class DiagramCanvas {
     } else {
       const id = event.button === 0 ? elementId(target) : undefined;
       const box = id ? this.boxes.get(id) : undefined;
+      const relationship = event.button === 0 && !id ? relationshipId(target) : undefined;
       if (id && box) {
         this.events.select(id);
         this.gesture = { kind: 'press', id, start: client, box };
+      } else if (relationship) {
+        this.events.selectRelationship(relationship);
+        this.gesture = { kind: 'none' };
       } else {
         this.gesture = { kind: 'pan', start: client, pan: this.pan, moved: false };
       }
@@ -335,6 +424,7 @@ export class DiagramCanvas {
         return;
       }
       case 'connect':
+      case 'reconnect':
         this.updateLine(this.layoutPoint(client.x, client.y));
         return;
       case 'none':
@@ -363,6 +453,17 @@ export class DiagramCanvas {
         }
         return;
       }
+      case 'reconnect': {
+        this.line.remove();
+        this.svg?.querySelector('.is-moving')?.classList.remove('is-moving');
+        const element = this.elementAt(event.clientX, event.clientY);
+        const box = element ? this.boxes.get(element) : undefined;
+        if (element && box) {
+          const side = nearestSide(box, this.layoutPoint(event.clientX, event.clientY));
+          this.events.reconnect(gesture.id, gesture.end, element, side);
+        }
+        return;
+      }
       case 'press':
       case 'none':
         return;
@@ -375,6 +476,7 @@ export class DiagramCanvas {
     this.root.classList.remove('is-panning');
     this.showGhost(null);
     this.line.remove();
+    this.svg?.querySelector('.is-moving')?.classList.remove('is-moving');
     if (gesture.kind === 'drag') {
       this.groupOf(gesture.id)?.classList.remove('is-dragging');
       this.groupOf(gesture.id)?.setAttribute('transform', `translate(${gesture.box.x} ${gesture.box.y})`);
@@ -390,7 +492,7 @@ export class DiagramCanvas {
   }
 
   private updateLine(to: Point): void {
-    if (this.gesture.kind !== 'connect') return;
+    if (this.gesture.kind !== 'connect' && this.gesture.kind !== 'reconnect') return;
     const { origin } = this.gesture;
     const line = this.line.querySelector('line');
     const dot = this.line.querySelector('circle');

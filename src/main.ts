@@ -5,12 +5,13 @@ import './styles.css';
 
 import {
   relationshipConnectors,
+  relationshipNames,
   validateArchiMate,
   type ArchiMateDiagnostic,
   type ArchiMateModel,
   type ArchiMateRelationship,
 } from 'archimaid/language';
-import { DiagramCanvas, gridUnit, layoutPadding, type Point, type Snapped } from './canvas.ts';
+import { DiagramCanvas, gridUnit, layoutPadding, type End, type Point, type Side, type Snapped } from './canvas.ts';
 import { paletteType, tileIcon } from './catalogue.ts';
 import { createSourceEditor } from './editor.ts';
 import { downloadBlob, prepareSvg, renderPng } from './export.ts';
@@ -21,6 +22,15 @@ import { decodeShareHash, encodeShareHash } from './share.ts';
 import {
   addElement,
   addRelationship,
+  countRelationshipLines,
+  readAnchor,
+  readRelationshipLabel,
+  readRelationshipLine,
+  reconnectRelationship,
+  removeRelationship,
+  setAnchor,
+  setRelationshipGlyph,
+  setRelationshipLabel,
   idFromName,
   readDescription,
   readLayout,
@@ -73,6 +83,16 @@ const ui = {
   collapse: byId<HTMLButtonElement>('collapse'),
   expand: byId<HTMLButtonElement>('expand'),
   inspector: byId('inspector'),
+  relInspector: byId('rel-inspector'),
+  relGlyph: byId('rel-glyph'),
+  relType: byId('rel-type'),
+  relId: byId('rel-id'),
+  relClose: byId<HTMLButtonElement>('rel-close'),
+  relFrom: byId('rel-from'),
+  relTo: byId('rel-to'),
+  relLabel: byId<HTMLInputElement>('rel-label'),
+  relRetype: byId<HTMLButtonElement>('rel-retype'),
+  relDelete: byId<HTMLButtonElement>('rel-delete'),
   inspectorIcon: byId('inspector-icon'),
   inspectorType: byId('inspector-type'),
   inspectorId: byId('inspector-id'),
@@ -109,6 +129,8 @@ let model: ArchiMateModel | undefined;
 let diagnostics: readonly ArchiMateDiagnostic[] = [];
 let lastSvg: string | undefined;
 let selected: string | null = null;
+// A relationship is selected by its place among the relationships, which survives edits that change its ID.
+let selectedRelationship: number | null = null;
 let textOpen = false;
 let unseenChanges = 0;
 let firstRender = true;
@@ -140,6 +162,8 @@ const canvas: DiagramCanvas = new DiagramCanvas(ui.canvas, ui.stage, ui.overlay,
     });
   },
   rename: (id) => startRename(id),
+  selectRelationship: (id) => selectRelationship(id),
+  reconnect: (id, end, element, side) => reconnect(id, end, element, side),
 });
 canvas.zoomListener = (scale) => {
   ui.zoomLevel.value = `${Math.round(scale * 100)}%`;
@@ -363,9 +387,82 @@ function saveInspector(): void {
 
 function select(id: string | null, save = true): void {
   if (save && id !== selected) saveInspector();
+  if (save) saveRelationshipInspector();
   selected = id;
+  selectedRelationship = null;
   canvas.setSelection(id);
   showInspector();
+  showRelationshipInspector();
+}
+
+// Relationships
+
+const sideNames: Record<Side, string> = { T: 'top', R: 'right', B: 'bottom', L: 'left' };
+
+// Relationship edits address lines by position, which only works while the text and the model agree.
+function relationshipsEditable(): boolean {
+  if (model && countRelationshipLines(source) === model.relationships.length) return true;
+  showToast('Fix the text first: its relationships do not match the diagram.', undefined);
+  return false;
+}
+
+function selectRelationship(id: string): void {
+  saveInspector();
+  saveRelationshipInspector();
+  const index = model?.relationships.findIndex((relationship) => relationship.id === id) ?? -1;
+  selected = null;
+  selectedRelationship = index >= 0 ? index : null;
+  canvas.setRelationshipSelection(index >= 0 ? id : null);
+  showInspector();
+  showRelationshipInspector();
+}
+
+function reconnect(id: string, end: End, element: string, side: Side): void {
+  const index = model?.relationships.findIndex((relationship) => relationship.id === id) ?? -1;
+  const relationship = model?.relationships[index];
+  if (!relationship || !relationshipsEditable()) return;
+  const which = end === 'source' ? 'start' : 'end';
+  if (relationship[end] === element) {
+    const note = model?.layout === 'custom' ? '' : ' (used in custom layout)';
+    commit(setAnchor(source, index, end, side), `Pinned the ${which} to the ${sideNames[side]} side${note}`);
+  } else {
+    commit(reconnectRelationship(source, index, end, element), `Moved the ${which} to ${nameOf(element)}`);
+  }
+}
+
+function saveRelationshipInspector(): void {
+  const index = selectedRelationship;
+  if (index === null || !model?.relationships[index] || ui.relInspector.classList.contains('is-hidden')) return;
+  const label = ui.relLabel.value.trim();
+  if (label === readRelationshipLabel(source, index) || !relationshipsEditable()) return;
+  commit(setRelationshipLabel(source, index, label), label ? `Labelled “${label}”` : 'Removed the label');
+}
+
+function showRelationshipInspector(): void {
+  const index = selectedRelationship;
+  const relationship = index === null ? undefined : model?.relationships[index];
+  ui.relInspector.classList.toggle('is-hidden', !relationship);
+  if (!relationship || index === null) return;
+  const line = readRelationshipLine(source, index);
+  const anchor = readAnchor(source, index);
+  ui.relGlyph.textContent = glyphOf(relationship);
+  const typeName = Object.entries(relationshipNames).find(([key]) => key === relationship.type)?.[1];
+  ui.relType.textContent = `${typeName ?? relationship.type} relationship`;
+  ui.relId.textContent = relationship.id;
+  ui.relFrom.textContent = nameOf(relationship.source) + (anchor.from ? ` · ${sideNames[anchor.from]}` : '');
+  ui.relTo.textContent = nameOf(relationship.target) + (anchor.to ? ` · ${sideNames[anchor.to]}` : '');
+  if (document.activeElement !== ui.relLabel) ui.relLabel.value = relationship.label ?? '';
+  ui.relRetype.disabled = line?.kind !== 'shorthand';
+  ui.relRetype.title = ui.relRetype.disabled ? 'Change the type of a long-form relationship in the text.' : '';
+}
+
+function deleteRelationship(): void {
+  const index = selectedRelationship;
+  if (index === null || !relationshipsEditable()) return;
+  selectedRelationship = null;
+  canvas.setRelationshipSelection(null);
+  showRelationshipInspector();
+  commit(removeRelationship(source, index), 'Deleted the relationship');
 }
 
 function glyphOf(relationship: ArchiMateRelationship): string {
@@ -467,8 +564,12 @@ async function refresh(): Promise<void> {
   lastSvg = outcome.svg;
   canvas.setSvg(outcome.svg);
   if (selected && !canvas.boxes.has(selected)) selected = null;
-  canvas.setSelection(selected);
+  const relationship = selectedRelationship === null ? undefined : model?.relationships[selectedRelationship];
+  if (!relationship) selectedRelationship = null;
+  if (relationship) canvas.setRelationshipSelection(relationship.id);
+  else canvas.setSelection(selected);
   showInspector();
+  showRelationshipInspector();
   updateTray();
   if (firstRender) {
     firstRender = false;
@@ -538,7 +639,7 @@ function fit(): void {
   const paletteOpen = !ui.palette.classList.contains('is-hidden');
   canvas.fit({
     left: paletteOpen ? 316 : 100,
-    right: textOpen ? 500 : selected ? 340 : 40,
+    right: textOpen ? 500 : selected || selectedRelationship !== null ? 340 : 40,
     top: 96,
     bottom: 80,
   });
@@ -568,6 +669,7 @@ function setTextOpen(open: boolean): void {
   ui.drawer.classList.toggle('is-hidden', !open);
   ui.textToggle.setAttribute('aria-pressed', String(open));
   ui.inspector.classList.toggle('beside-text', open);
+  ui.relInspector.classList.toggle('beside-text', open);
   document.querySelector('.zoom')?.classList.toggle('beside-text', open);
   if (open) {
     unseenChanges = 0;
@@ -632,7 +734,10 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (isTyping(event.target)) return;
-  if ((event.key === 'Delete' || event.key === 'Backspace') && selected) {
+  if ((event.key === 'Delete' || event.key === 'Backspace') && selectedRelationship !== null) {
+    event.preventDefault();
+    deleteRelationship();
+  } else if ((event.key === 'Delete' || event.key === 'Backspace') && selected) {
     event.preventDefault();
     deleteSelected();
   } else if (event.key === 'Enter' && selected) {
@@ -653,6 +758,21 @@ ui.fieldName.addEventListener('keydown', (event) => {
 ui.fieldDescription.addEventListener('change', saveInspector);
 ui.inspectorClose.addEventListener('click', () => select(null));
 ui.remove.addEventListener('click', deleteSelected);
+ui.relClose.addEventListener('click', () => select(null));
+ui.relDelete.addEventListener('click', deleteRelationship);
+ui.relLabel.addEventListener('change', saveRelationshipInspector);
+ui.relLabel.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') ui.relLabel.blur();
+});
+ui.relRetype.addEventListener('click', () => {
+  const index = selectedRelationship;
+  const relationship = index === null ? undefined : model?.relationships[index];
+  if (index === null || !relationship) return;
+  const rect = ui.relRetype.getBoundingClientRect();
+  openPicker({ x: rect.left - 250, y: rect.top - 12 }, 'Change the type', (glyph) => {
+    if (relationshipsEditable()) commit(setRelationshipGlyph(source, index, glyph), `Changed the type to ${glyph}`);
+  });
+});
 
 ui.layoutAuto.addEventListener('click', () => {
   if (readLayout(source) !== 'custom') return;

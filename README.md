@@ -10,12 +10,13 @@ The text is the only document state. Every gesture is a small edit to the `archi
 - Drag elements to move them. In custom layout this writes `id at x y` in the `positions` block; in auto layout the first move pins every element where it is and switches to custom layout.
 - Select an element to edit its name and description. Leaving a field or the element saves to the text.
 - Drag from a selection handle to another element and pick the relationship type, with one key per type.
+- Click a relationship to select it. Drag either end onto another element to reconnect it, or onto a side of its own element to pin that side (`from` and `to` in the `positions` block). Change its type, add a label, or delete it.
 - Delete with the Delete key, rename with Enter or a double-click, undo with ⌘Z.
 - Open the text panel to read or edit the source. Lines the canvas just wrote are highlighted.
 - Elements without a position wait in the Unplaced tray until you drag them in.
 - Export SVG, PNG or `.mmd`, share a link, or open the diagram in the playground.
 
-Nesting new elements inside containers, moving elements between containers, and anchoring relationship sides from the canvas are not built yet; edit the text for those.
+Nesting new elements inside containers and moving elements between containers are not built yet; edit the text for those. Long-form relationships keep their type; change it in the text.
 
 ## Development
 

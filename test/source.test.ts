@@ -4,6 +4,13 @@ import { validateArchiMate } from 'archimaid/language';
 import {
   addElement,
   addRelationship,
+  readAnchor,
+  readRelationshipLabel,
+  reconnectRelationship,
+  removeRelationship,
+  setAnchor,
+  setRelationshipGlyph,
+  setRelationshipLabel,
   idFromName,
   readDescription,
   removeElement,
@@ -112,4 +119,51 @@ test('new elements join their own layer in the text', () => {
   assert.equal(application[5], '  element applicationInterface api "API"');
   const motivation = addElement(layered, { type: 'goal', id: 'speed', name: 'Speed' }).split('\n');
   assert.equal(motivation[1], '  element goal speed "Speed"');
+});
+
+const related = `archimate-beta
+  layout custom
+  element businessRole clerk "Clerk"
+  element businessProcess fulfil "Fulfil"
+  element applicationService orders "Orders"
+  clerk @==> fulfil
+  orders --> fulfil : "Supports"
+  relationship realization rel1 orders -> clerk
+
+  positions {
+    clerk at 0 0
+    orders --> fulfil from T to B
+    rel1 to L
+  }`;
+
+test('reconnecting an end rewrites the relationship and drops the side pinned on the old element', () => {
+  const moved = reconnectRelationship(related, 1, 'target', 'clerk');
+  assert.deepEqual(errors(moved), []);
+  assert.ok(moved.includes('  orders --> clerk : "Supports"'));
+  assert.ok(moved.includes('    orders --> clerk from T\n'));
+  const long = reconnectRelationship(related, 2, 'source', 'fulfil');
+  assert.ok(long.includes('  relationship realization rel1 fulfil -> clerk'));
+  assert.ok(long.includes('    rel1 to L'));
+  assert.ok(!reconnectRelationship(related, 2, 'target', 'fulfil').includes('rel1 to'));
+});
+
+test('retypes, relabels, anchors and removes relationships', () => {
+  let result = setRelationshipGlyph(related, 1, '==>');
+  assert.ok(
+    result.includes('  orders ==> fulfil : "Supports"') && result.includes('    orders ==> fulfil from T to B'),
+  );
+  result = setRelationshipLabel(result, 1, 'Feeds');
+  result = setRelationshipLabel(result, 0, 'Does');
+  result = setRelationshipLabel(result, 2, 'Realizes');
+  assert.equal(readRelationshipLabel(result, 1), 'Feeds');
+  assert.ok(result.includes('  clerk @==> fulfil : "Does"'));
+  assert.ok(result.includes('relationship realization rel1 orders -> clerk label "Realizes"'));
+  result = setAnchor(result, 0, 'source', 'R');
+  assert.deepEqual(readAnchor(result, 0), { from: 'R' });
+  result = setAnchor(result, 2, 'target', undefined);
+  assert.ok(!result.includes('rel1 to'));
+  assert.deepEqual(errors(result), []);
+  result = removeRelationship(result, 1);
+  assert.deepEqual(errors(result), []);
+  assert.ok(!result.includes('orders ==> fulfil'));
 });

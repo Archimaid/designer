@@ -356,3 +356,226 @@ export function removeElement(source: string, id: string): string {
   });
   return join(kept);
 }
+
+// Relationship edits address a relationship by its place among the relationship statements, which is the
+// order of the model's relationships. The positions block is skipped, because its anchor lines look alike.
+
+export type AnchorSide = 'T' | 'R' | 'B' | 'L';
+export type RelationshipEnd = 'source' | 'target';
+
+interface ShorthandLine {
+  readonly kind: 'shorthand';
+  readonly source: string;
+  readonly glyph: string;
+  readonly target: string;
+}
+
+interface LongFormLine {
+  readonly kind: 'longForm';
+  readonly type: string;
+  readonly id: string;
+  readonly source: string;
+  readonly target: string;
+}
+
+export type RelationshipLine = ShorthandLine | LongFormLine;
+
+const shorthandPattern = /^(\s*)(\S+)(\s+)(\S+)(\s+)(\S+)(.*)$/u;
+const longFormPattern = /^(\s*relationship\s+)(\S+)(\s+)(\S+)(\s+)(\S+)(\s*->\s*)(\S+)(.*)$/u;
+
+function relationshipLineIndices(source: readonly string[]): number[] {
+  const block = positionsBlock(source);
+  return source.flatMap((line, index) =>
+    (!block || index < block.open || index > block.close) && isRelationshipLine(line) ? [index] : [],
+  );
+}
+
+export function readRelationshipLine(source: string, index: number): RelationshipLine | undefined {
+  const all = lines(source);
+  const line = all[relationshipLineIndices(all)[index] ?? -1];
+  if (line === undefined) return undefined;
+  const long = longFormPattern.exec(code(line));
+  if (long) {
+    return { kind: 'longForm', type: long[2] ?? '', id: long[4] ?? '', source: long[6] ?? '', target: long[8] ?? '' };
+  }
+  const short = shorthandPattern.exec(code(line));
+  if (!short) return undefined;
+  return { kind: 'shorthand', source: short[2] ?? '', glyph: short[4] ?? '', target: short[6] ?? '' };
+}
+
+export function countRelationshipLines(source: string): number {
+  return relationshipLineIndices(lines(source)).length;
+}
+
+function generatedId(line: ShorthandLine): string {
+  const notation = Object.entries(relationshipConnectors).find(([glyph]) => glyph === line.glyph)?.[1];
+  return `${line.source}__${notation?.type ?? 'relationship'}__${line.target}`;
+}
+
+function sameReference(reference: string, line: RelationshipLine): boolean {
+  const words = reference.trim().split(/\s+/u);
+  if (line.kind === 'longForm') return words.length === 1 && words[0] === line.id;
+  if (words.length === 1) return words[0] === generatedId(line);
+  return words[0] === line.source && words[1] === line.glyph && words[2] === line.target;
+}
+
+interface AnchorLine {
+  readonly index: number;
+  readonly indent: string;
+  readonly from: string | undefined;
+  readonly to: string | undefined;
+}
+
+function findAnchor(source: readonly string[], line: RelationshipLine): AnchorLine | undefined {
+  const block = positionsBlock(source);
+  if (!block) return undefined;
+  for (let index = block.open + 1; index < block.close; index++) {
+    const match = /^(\s*)(.+?)((?:\s+(?:from|to)\s+\S+)+)\s*$/u.exec(code(source[index] ?? ''));
+    if (!match || !sameReference(match[2] ?? '', line)) continue;
+    const sides = match[3] ?? '';
+    return {
+      index,
+      indent: match[1] ?? '',
+      from: /\bfrom\s+(\S+)/u.exec(sides)?.[1],
+      to: /\bto\s+(\S+)/u.exec(sides)?.[1],
+    };
+  }
+  return undefined;
+}
+
+function reference(line: RelationshipLine): string {
+  return line.kind === 'longForm' ? line.id : `${line.source} ${line.glyph} ${line.target}`;
+}
+
+function anchorText(indent: string, line: RelationshipLine, from: string | undefined, to: string | undefined): string {
+  return `${indent}${reference(line)}${from ? ` from ${from}` : ''}${to ? ` to ${to}` : ''}`;
+}
+
+// Rewrites or removes the relationship's anchor line after the relationship itself changed.
+function rewriteAnchor(
+  result: string[],
+  before: RelationshipLine,
+  after: RelationshipLine | undefined,
+  dropEnd?: RelationshipEnd,
+): void {
+  const anchor = findAnchor(result, before);
+  if (!anchor) return;
+  const from = dropEnd === 'source' ? undefined : anchor.from;
+  const to = dropEnd === 'target' ? undefined : anchor.to;
+  if (!after || (!from && !to)) result.splice(anchor.index, 1);
+  else result[anchor.index] = anchorText(anchor.indent, after, from, to);
+}
+
+export function removeRelationship(source: string, index: number): string {
+  const result = lines(source);
+  const at = relationshipLineIndices(result)[index];
+  const line = readRelationshipLine(source, index);
+  if (at === undefined || !line) return source;
+  rewriteAnchor(result, line, undefined);
+  result.splice(at, 1);
+  return join(result);
+}
+
+function rewriteLine(source: string, index: number, change: (line: string) => string): string[] | undefined {
+  const result = lines(source);
+  const at = relationshipLineIndices(result)[index];
+  const line = result[at ?? -1];
+  if (at === undefined || line === undefined) return undefined;
+  result[at] = change(line);
+  return result;
+}
+
+// Moving one end to another element keeps the other end, the type and the label; a side pinned on the old
+// element is dropped, since it described that element.
+export function reconnectRelationship(source: string, index: number, end: RelationshipEnd, to: string): string {
+  const before = readRelationshipLine(source, index);
+  if (!before) return source;
+  const after: RelationshipLine = end === 'source' ? { ...before, source: to } : { ...before, target: to };
+  const result = rewriteLine(source, index, (line) =>
+    before.kind === 'longForm'
+      ? line.replace(longFormPattern, (...groups: string[]) => {
+          const parts = groups.slice(1, 10);
+          parts[end === 'source' ? 5 : 7] = to;
+          return parts.join('');
+        })
+      : line.replace(shorthandPattern, (...groups: string[]) => {
+          const parts = groups.slice(1, 8);
+          parts[end === 'source' ? 1 : 5] = to;
+          return parts.join('');
+        }),
+  );
+  if (!result) return source;
+  rewriteAnchor(result, before, after, end);
+  return join(result);
+}
+
+export function setRelationshipGlyph(source: string, index: number, glyph: string): string {
+  const before = readRelationshipLine(source, index);
+  if (before?.kind !== 'shorthand') return source;
+  const result = rewriteLine(source, index, (line) =>
+    line.replace(shorthandPattern, (...groups: string[]) => {
+      const parts = groups.slice(1, 8);
+      parts[3] = glyph;
+      return parts.join('');
+    }),
+  );
+  if (!result) return source;
+  rewriteAnchor(result, before, { ...before, glyph });
+  return join(result);
+}
+
+export function readRelationshipLabel(source: string, index: number): string {
+  const all = lines(source);
+  const line = code(all[relationshipLineIndices(all)[index] ?? -1] ?? '');
+  const match = new RegExp(`(?::|\\blabel)\\s*(${quotedText})\\s*$`, 'u').exec(line);
+  return match?.[1] ? (JSON.parse(match[1]) as string) : '';
+}
+
+export function setRelationshipLabel(source: string, index: number, label: string): string {
+  const before = readRelationshipLine(source, index);
+  if (!before) return source;
+  const trimmed = label.trim();
+  const result = rewriteLine(source, index, (line) => {
+    const comment = /\s*%%.*$/u.exec(line)?.[0] ?? '';
+    const body = line.slice(0, line.length - comment.length);
+    const marker = before.kind === 'longForm' ? '\\s+label\\s*' : '\\s*:\\s*';
+    const bare = body.replace(new RegExp(`${marker}${quotedText}\\s*$`, 'u'), '');
+    if (!trimmed) return bare + comment;
+    const prefix = before.kind === 'longForm' ? ' label ' : ' : ';
+    return `${bare}${prefix}${JSON.stringify(trimmed)}${comment}`;
+  });
+  return result ? join(result) : source;
+}
+
+export function readAnchor(source: string, index: number): { from?: AnchorSide; to?: AnchorSide } {
+  const line = readRelationshipLine(source, index);
+  const anchor = line && findAnchor(lines(source), line);
+  return {
+    ...(anchor?.from && { from: anchor.from as AnchorSide }),
+    ...(anchor?.to && { to: anchor.to as AnchorSide }),
+  };
+}
+
+// Pins the side where one end meets its element; the positions block is created when missing.
+export function setAnchor(source: string, index: number, end: RelationshipEnd, side: AnchorSide | undefined): string {
+  const line = readRelationshipLine(source, index);
+  if (!line) return source;
+  const result = lines(source);
+  if (!positionsBlock(result)) {
+    const indent = elementIndent(result);
+    result.splice(lastContentIndex(result) + 1, 0, '', `${indent}positions {`, `${indent}}`);
+  }
+  const anchor = findAnchor(result, line);
+  const from = end === 'source' ? side : anchor?.from;
+  const to = end === 'target' ? side : anchor?.to;
+  const block = positionsBlock(result);
+  if (!block) return source;
+  const indent = indentOf(result[block.open] ?? '') + elementIndent(result);
+  if (anchor) {
+    if (from || to) result[anchor.index] = anchorText(anchor.indent, line, from, to);
+    else result.splice(anchor.index, 1);
+  } else if (from || to) {
+    result.splice(block.close, 0, anchorText(indent, line, from, to));
+  }
+  return join(result);
+}

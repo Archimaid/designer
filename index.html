@@ -148,6 +148,41 @@
       </div>
     </aside>
 
+    <aside
+      class="float inspector panel-anim slide-right is-hidden"
+      id="rel-inspector"
+      aria-label="Selected relationship"
+    >
+      <div class="inspector-head">
+        <code class="glyph-chip" id="rel-glyph"></code>
+        <div class="inspector-type">
+          <span id="rel-type"></span>
+          <span id="rel-id"></span>
+        </div>
+        <button class="icon-btn small" type="button" id="rel-close" aria-label="Close">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+      <div class="section" style="border-top: 0; padding-top: 0">
+        <div class="info">From<b id="rel-from"></b></div>
+        <div class="info">To<b id="rel-to"></b></div>
+      </div>
+      <label class="field">Label<input class="input" id="rel-label" autocomplete="off" placeholder="Optional" /></label>
+      <button class="btn" type="button" id="rel-retype" style="justify-content: center">Change type</button>
+      <span class="hint">
+        Drag an end onto another element to reconnect it, or onto a side of its own element to pin that side.
+      </span>
+      <div class="section inspector-foot">
+        <span class="saved-note">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>
+          Saves when you leave
+        </span>
+        <button class="danger" type="button" id="rel-delete">Delete</button>
+      </div>
+    </aside>
+
     <section class="float drawer panel-anim is-hidden" id="drawer" aria-label="Diagram text">
       <div class="drawer-head">
         <span class="file" id="file-name">diagram.mmd</span>
