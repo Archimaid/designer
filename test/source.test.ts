@@ -41,12 +41,12 @@ test('IDs follow the name and stay unique', () => {
   assert.equal(idFromName('Clerk', new Set(['clerk'])), 'clerk2');
 });
 
-test('adds an element after the last top-level element and pins it', () => {
+test('adds an element after the last element of its layer and pins it', () => {
   const result = addElement(base, { type: 'businessProcess', id: 'ship', name: 'Ship "fast"', at: { x: 4, y: 8 } });
   assert.deepEqual(errors(result), []);
   const lines = result.split('\n');
-  assert.equal(lines[7], '  element businessProcess ship "Ship \\"fast\\""');
-  assert.equal(lines[8], '  clerk --> oms');
+  assert.equal(lines[4], '  element businessProcess ship "Ship \\"fast\\""');
+  assert.equal(lines[5], '  element applicationComponent oms "Order management" {');
   assert.ok(result.includes('    ship at 4 8\n  }'));
 });
 
@@ -88,4 +88,28 @@ test('removing a container removes its children and every reference', () => {
   assert.deepEqual(errors(result), []);
   assert.ok(!/oms|billing/u.test(result));
   assert.ok(result.includes('    clerk at 0 0\n  }'));
+});
+
+test('IDs never reuse a type name, and renaming an ID leaves the type alone', () => {
+  assert.equal(idFromName('Business Actor', new Set()), 'businessActor2');
+  const source =
+    'archimate-beta\n  element businessActor businessActor "Business Actor"\n  businessActor --> businessActor';
+  const result = renameId(source, 'businessActor', 'clerk');
+  assert.equal(result, 'archimate-beta\n  element businessActor clerk "Business Actor"\n  clerk --> clerk');
+});
+
+test('new elements join their own layer in the text', () => {
+  const layered = `archimate-beta
+  element businessRole clerk "Clerk"
+  element applicationComponent oms "Orders" {
+    element applicationComponent billing "Billing"
+  }
+  element node server "Server"
+  clerk --> oms`;
+  const business = addElement(layered, { type: 'businessActor', id: 'customer', name: 'Customer' }).split('\n');
+  assert.equal(business[2], '  element businessActor customer "Customer"');
+  const application = addElement(layered, { type: 'applicationInterface', id: 'api', name: 'API' }).split('\n');
+  assert.equal(application[5], '  element applicationInterface api "API"');
+  const motivation = addElement(layered, { type: 'goal', id: 'speed', name: 'Speed' }).split('\n');
+  assert.equal(motivation[1], '  element goal speed "Speed"');
 });

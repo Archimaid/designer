@@ -1,4 +1,4 @@
-import { relationshipConnectors } from 'archimaid/language';
+import { elementTypes, relationshipConnectors, relationshipTypes } from 'archimaid/language';
 
 // Every canvas gesture is one of these pure text edits. The source stays the only state, so the text panel,
 // undo, share links and the renderer all see exactly what the designer wrote.
@@ -14,6 +14,32 @@ const quotedText = String.raw`"(?:[^"\\]|\\.)*"`;
 const identifierPattern = /[A-Za-z_]\w*(?:-\w+)*/gu;
 const connectorGlyphs = Object.keys(relationshipConnectors).sort((left, right) => right.length - left.length);
 const defaultIndent = '  ';
+
+// IDs never reuse a type name or a keyword, so a reader can always tell an ID from what it describes.
+const reservedWords: ReadonlySet<string> = new Set([
+  ...Object.keys(elementTypes),
+  ...relationshipTypes,
+  ...['archimate', 'layout', 'direction', 'element', 'description', 'relationship', 'note', 'nest', 'click'],
+  ...['positions', 'at', 'size', 'from', 'to', 'on', 'in', 'via', 'href', 'access', 'directed', 'label'],
+]);
+
+// New elements join their own layer, and layers follow the order of the architecture layout rows.
+const layerOrder = [
+  'motivation',
+  'strategy',
+  'business',
+  'application',
+  'technology',
+  'physical',
+  'implementationAndMigration',
+  'composite',
+];
+
+function layerRank(type: string): number {
+  const category = Object.entries(elementTypes).find(([key]) => key === type)?.[1].category;
+  const rank = category ? layerOrder.indexOf(category) : -1;
+  return rank < 0 ? layerOrder.length : rank;
+}
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
@@ -101,7 +127,7 @@ export function idFromName(name: string, taken: ReadonlySet<string>): string {
     .join('');
   const base = /^[A-Za-z]/u.test(camel) ? camel : 'element' + camel;
   let id = base;
-  for (let suffix = 2; taken.has(id); suffix++) id = base + suffix;
+  for (let suffix = 2; taken.has(id) || reservedWords.has(id); suffix++) id = base + suffix;
   return id;
 }
 
@@ -112,20 +138,30 @@ export interface NewElement {
   readonly at?: GridPoint;
 }
 
-// New elements go after the last top-level element, before relationships, so the file keeps its usual order.
+// A new element goes after the last top-level element of its own or an earlier layer, before relationships,
+// so business elements stay together above application elements and the file keeps its usual order.
 export function addElement(source: string, element: NewElement): string {
   const result = lines(source);
   const depth = depths(result);
   const header = headerIndex(result);
-  let insertAt = -1;
+  const rank = layerRank(element.type);
+  const statements: { start: number; end: number; rank: number }[] = [];
   for (let index = header + 1; index < result.length; index++) {
     if (depth[index] !== 0) continue;
     const trimmed = code(result[index] ?? '').trim();
     if (isRelationshipLine(trimmed) || trimmed.startsWith('positions')) break;
-    if (trimmed.startsWith('element ')) insertAt = index + 1;
-    else if (trimmed === '}' && insertAt >= 0) insertAt = index + 1;
+    const declared = /^element\s+(\S+)/u.exec(trimmed);
+    if (declared?.[1]) statements.push({ start: index, end: index, rank: layerRank(declared[1]) });
+    else if (trimmed === '}' && statements.length) {
+      const last = statements.at(-1);
+      if (last) last.end = index;
+    }
   }
-  if (insertAt < 0) {
+  let insertAt: number;
+  const before = statements.filter((statement) => statement.rank <= rank).at(-1);
+  if (before) insertAt = before.end + 1;
+  else if (statements[0]) insertAt = statements[0].start;
+  else {
     const firstOther = result.findIndex(
       (line, index) =>
         index > header && depth[index] === 0 && (isRelationshipLine(line) || /^\s*positions\b/u.test(line)),
@@ -153,11 +189,15 @@ export function renameElement(source: string, id: string, name: string): string 
   return join(result);
 }
 
+// The type word in an element or long-form relationship declaration is never an ID, even when it is spelt alike.
 export function renameId(source: string, from: string, to: string): string {
   return join(
     lines(source).map((line) => {
       let rewritten = line;
-      for (const { word, start } of identifiers(line).reverse()) {
+      const words = identifiers(line);
+      const declaresType = words[0]?.word === 'element' || words[0]?.word === 'relationship';
+      for (const [index, { word, start }] of [...words.entries()].reverse()) {
+        if (declaresType && index === 1) continue;
         if (word === from) rewritten = rewritten.slice(0, start) + to + rewritten.slice(start + from.length);
       }
       return rewritten;

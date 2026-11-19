@@ -223,8 +223,16 @@ function changedLineNumbers(before: string, after: string): number[] {
   return changed;
 }
 
+const hasErrors = (text: string): boolean =>
+  validateArchiMate(text).diagnostics.some(({ severity }) => severity === 'error');
+
 function commit(next: string, message?: string): void {
   if (next === source) return;
+  // The canvas never turns valid text into invalid text; a refused edit leaves the diagram as it was.
+  if (hasErrors(next) && !hasErrors(source)) {
+    showToast('That change would break the text, so it was not applied.', undefined);
+    return;
+  }
   pushHistory();
   const before = source;
   source = next;
@@ -289,13 +297,13 @@ function dropOnCanvas(payload: DragPayload, client: Point | undefined): void {
   }
   const { type } = payload;
   // The ID comes from the default name, so it follows the name the person types next.
-  const id = idFromName(type.name, usedWords(source));
+  const id = idFromName(type.label, usedWords(source));
   const custom = model?.layout === 'custom';
   const grid = {
     x: Math.max(0, Math.round((topLeft.x - layoutPadding) / gridUnit)),
     y: Math.max(0, Math.round((topLeft.y - layoutPadding) / gridUnit)),
   };
-  const next = addElement(source, { type: type.key, id, name: type.name, ...(custom && { at: grid }) });
+  const next = addElement(source, { type: type.key, id, name: type.label, ...(custom && { at: grid }) });
   afterRender.push(() => {
     select(id);
     startRename(id);
