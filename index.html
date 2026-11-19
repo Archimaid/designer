@@ -35,37 +35,39 @@
         <span class="brand-chip">designer</span>
       </a>
       <span class="divider"></span>
-      <label class="visually-hidden" for="title">Diagram name</label>
-      <input class="title-input" id="title" value="Untitled diagram" spellcheck="false" />
-      <button class="icon-btn small mobile-only" type="button" id="m-undo" aria-label="Undo">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M9 14 4 9l5-5" />
-          <path d="M4 9h11a5 5 0 0 1 0 10h-3" />
-        </svg>
-      </button>
-      <div class="mobile-only" style="position: relative">
-        <button
-          class="icon-btn small dark"
-          type="button"
-          id="m-more"
-          aria-label="More"
-          aria-expanded="false"
-          aria-controls="more-menu"
-        >
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="fill: currentColor; stroke: none">
-            <circle cx="5" cy="12" r="2" />
-            <circle cx="12" cy="12" r="2" />
-            <circle cx="19" cy="12" r="2" />
+      <div class="title-pill">
+        <label class="visually-hidden" for="title">Diagram name</label>
+        <input class="title-input" id="title" value="Untitled diagram" spellcheck="false" />
+        <button class="icon-btn small mobile-only" type="button" id="m-undo" aria-label="Undo">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 14 4 9l5-5" />
+            <path d="M4 9h11a5 5 0 0 1 0 10h-3" />
           </svg>
         </button>
-        <div class="menu panel-anim is-hidden" id="more-menu" role="menu">
-          <button type="button" role="menuitem" data-more="auto">Auto layout</button>
-          <button type="button" role="menuitem" data-more="custom">Custom layout</button>
-          <button type="button" role="menuitem" data-more="redo">Redo</button>
-          <button type="button" role="menuitem" data-more="share">Copy share link</button>
-          <button type="button" role="menuitem" data-more="svg">Export SVG</button>
-          <button type="button" role="menuitem" data-more="png">Export PNG</button>
-          <button type="button" role="menuitem" data-more="mmd">Export text (.mmd)</button>
+        <div class="mobile-only" style="position: relative">
+          <button
+            class="icon-btn small dark"
+            type="button"
+            id="m-more"
+            aria-label="More"
+            aria-expanded="false"
+            aria-controls="more-menu"
+          >
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="fill: currentColor; stroke: none">
+              <circle cx="5" cy="12" r="2" />
+              <circle cx="12" cy="12" r="2" />
+              <circle cx="19" cy="12" r="2" />
+            </svg>
+          </button>
+          <div class="menu panel-anim is-hidden" id="more-menu" role="menu">
+            <button type="button" role="menuitem" data-more="auto">Auto layout</button>
+            <button type="button" role="menuitem" data-more="custom">Custom layout</button>
+            <button type="button" role="menuitem" data-more="redo">Redo</button>
+            <button type="button" role="menuitem" data-more="share">Copy share link</button>
+            <button type="button" role="menuitem" data-more="svg">Export SVG</button>
+            <button type="button" role="menuitem" data-more="png">Export PNG</button>
+            <button type="button" role="menuitem" data-more="mmd">Export text (.mmd)</button>
+          </div>
         </div>
       </div>
     </header>

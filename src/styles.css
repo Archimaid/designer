@@ -1431,10 +1431,14 @@ textarea.input {
   display: none;
 }
 
+.title-pill {
+  display: contents;
+}
+
 .view-tabs {
   left: 12px;
   right: 12px;
-  top: 72px;
+  top: 82px;
   padding: 3px;
   border-radius: 999px;
   box-shadow: 4px 4px 0 var(--ink);
@@ -1686,11 +1690,32 @@ textarea.input {
     display: flex;
   }
 
-  .topbar {
+  /* As in the playground, the logo stands on the canvas; the name and its buttons sit in their own pill. */
+  .float.topbar {
     left: 12px;
     right: 12px;
-    gap: 8px;
-    padding: 6px 6px 6px 12px;
+    gap: 10px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .brand svg {
+    width: 40px;
+    height: 40px;
+  }
+
+  .title-pill {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 5px 5px 10px;
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    background: var(--white);
     box-shadow: 4px 4px 0 var(--ink);
   }
 
@@ -1739,7 +1764,7 @@ textarea.input {
   .drawer {
     left: 0;
     right: 0;
-    top: 132px;
+    top: 148px;
     bottom: 0;
     width: auto;
     border-width: 2px 0 0;
@@ -1780,13 +1805,25 @@ textarea.input {
   }
 
   .toast {
+    left: 12px;
+    right: 12px;
     bottom: 92px;
-    max-width: calc(100% - 24px);
+    padding: 12px 16px;
+    border-radius: 16px;
     white-space: normal;
+    transform: none;
+  }
+
+  .toast.is-hidden {
+    transform: translateY(14px);
+  }
+
+  #toast-action {
+    display: none !important;
   }
 
   .error-chip {
-    top: 128px;
+    top: 144px;
     max-width: calc(100% - 24px);
     white-space: normal;
   }

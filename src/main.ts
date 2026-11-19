@@ -151,6 +151,11 @@ const ui = {
 const phone = matchMedia('(max-width: 760px)');
 let detailsOpen = false;
 
+// Phones show the result on the canvas itself, so moves, resizes and pins need no notification there.
+function layoutNote(message: string): string | undefined {
+  return phone.matches ? undefined : message;
+}
+
 function syncSheets(): void {
   const open = [ui.selectionBar, ui.inspector, ui.relInspector, ui.addSheet].some(
     (sheet) => !sheet.classList.contains('is-hidden'),
@@ -398,7 +403,7 @@ function moveElement(id: string, topLeft: Point, size?: GridSize): void {
   const done = size
     ? `Resized ${nameOf(id)} · size ${size.width}x${size.height}`
     : `Moved ${nameOf(id)} · ${id} at ${grid.x} ${grid.y}`;
-  commit(next, custom ? done : 'Switched to custom layout');
+  commit(next, custom ? layoutNote(done) : 'Switched to custom layout');
 }
 
 function dropOnCanvas(payload: DragPayload, client: Point | undefined): void {
@@ -407,7 +412,10 @@ function dropOnCanvas(payload: DragPayload, client: Point | undefined): void {
   const point = canvas.layoutPoint(at.x, at.y);
   const topLeft = { x: point.x - 70, y: point.y - 30 };
   if (payload.kind === 'place') {
-    commit(placeAt(source, payload.id, rawGridFor(payload.id, topLeft)).text, `Placed ${nameOf(payload.id)}`);
+    commit(
+      placeAt(source, payload.id, rawGridFor(payload.id, topLeft)).text,
+      layoutNote(`Placed ${nameOf(payload.id)}`),
+    );
     return;
   }
   const { type } = payload;
@@ -518,7 +526,10 @@ function reconnect(id: string, end: End, element: string, side: Side): void {
   const which = end === 'source' ? 'start' : 'end';
   if (relationship[end] === element) {
     const note = model?.layout === 'custom' ? '' : ' (used in custom layout)';
-    commit(setAnchor(source, index, end, side), `Pinned the ${which} to the ${sideNames[side]} side${note}`);
+    commit(
+      setAnchor(source, index, end, side),
+      layoutNote(`Pinned the ${which} to the ${sideNames[side]} side${note}`),
+    );
   } else {
     commit(reconnectRelationship(source, index, end, element), `Moved the ${which} to ${nameOf(element)}`);
   }
@@ -750,7 +761,7 @@ function updateTray(): void {
 
 function fit(): void {
   if (phone.matches) {
-    canvas.fit({ left: 16, right: 16, top: 136, bottom: 96 });
+    canvas.fit({ left: 16, right: 16, top: 152, bottom: 96 });
     return;
   }
   const paletteOpen = !ui.palette.classList.contains('is-hidden');
