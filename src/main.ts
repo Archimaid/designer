@@ -22,6 +22,7 @@ import {
   type Tool,
 } from './canvas.ts';
 import { notePaletteType, paletteType, tileIcon } from './catalogue.ts';
+import { byId, confirmTwice, createDropdown, pressOnly } from './dom.ts';
 import { createSourceEditor } from './editor.ts';
 import { blankSource, blankTitle, examples, starterExample } from './examples.ts';
 import { convertNotation, detectNotation, type Notation } from './notation.ts';
@@ -74,12 +75,6 @@ const groupsKey = 'archimaid.designer.open-groups';
 const textEditDelayMs = 300;
 const historyMergeMs = 800;
 const toastMs = 2800;
-
-function byId<T extends HTMLElement>(id: string): T {
-  const element = document.getElementById(id);
-  if (!element) throw new Error(`Missing #${id} in index.html.`);
-  return element as T;
-}
 
 const ui = {
   canvas: byId('canvas'),
@@ -899,11 +894,9 @@ const notationTips = new Map(
 // The pressed button shows what the text is written in, which a hand edit can change; mixed presses neither.
 function showNotation(valid: boolean): void {
   const written = detectNotation(source);
-  for (const [button, notation] of [
-    [ui.notationLong, 'long'],
-    [ui.notationShorthand, 'shorthand'],
-  ] as const) {
-    button.setAttribute('aria-pressed', String(written === notation));
+  const buttons = [ui.notationLong, ui.notationShorthand];
+  pressOnly(buttons, written === 'long' ? ui.notationLong : written === 'shorthand' ? ui.notationShorthand : undefined);
+  for (const button of buttons) {
     button.disabled = !valid;
     button.dataset.tip = valid
       ? (notationTips.get(button) ?? '')
@@ -935,8 +928,7 @@ function selectNotation(notation: Notation): void {
 function updateChrome(): void {
   const layout = readLayout(source);
   const custom = layout === 'custom';
-  ui.layoutCustom.setAttribute('aria-pressed', String(custom));
-  ui.layoutAuto.setAttribute('aria-pressed', String(!custom));
+  pressOnly([ui.layoutAuto, ui.layoutCustom], custom ? ui.layoutCustom : ui.layoutAuto);
   ui.undo.disabled = undoStack.length === 0;
   ui.redo.disabled = redoStack.length === 0;
   const empty = clearDiagram(source) === source;
@@ -1024,23 +1016,17 @@ function setCollapsed(collapsed: boolean): void {
   writeStored(collapsedKey, collapsed ? '1' : '0');
 }
 
-function setExportMenu(open: boolean): void {
-  ui.exportMenu.classList.toggle('is-hidden', !open);
-  ui.exportToggle.setAttribute('aria-expanded', String(open));
-}
-
 function fileBase(): string {
   return idFromName(ui.title.value || 'diagram', new Set()).replace(/[A-Z]/gu, (letter) => '-' + letter.toLowerCase());
 }
 
 async function exportAs(kind: string): Promise<void> {
-  setExportMenu(false);
   if (kind === 'mmd') {
     downloadBlob(new Blob([source], { type: 'text/plain' }), `${fileBase()}.mmd`);
     return;
   }
   if (!lastSvg) return;
-  const svg = prepareSvg(lastSvg, 'transparent');
+  const svg = prepareSvg(lastSvg);
   if (kind === 'svg') downloadBlob(new Blob([svg.source], { type: 'image/svg+xml' }), `${fileBase()}.svg`);
   else downloadBlob(await renderPng(svg), `${fileBase()}.png`);
 }
@@ -1099,8 +1085,6 @@ document.addEventListener('keydown', (event) => {
   } else if (event.key === 'Escape') {
     canvas.cancel();
     closePicker();
-    setExportMenu(false);
-    setExamplesMenu(false);
     select(null);
   }
 });
@@ -1157,11 +1141,7 @@ buildAddSheet({
   },
 });
 
-function setMoreMenu(open: boolean): void {
-  ui.moreMenu.classList.toggle('is-hidden', !open);
-  ui.mMore.setAttribute('aria-expanded', String(open));
-}
-ui.mMore.addEventListener('click', () => setMoreMenu(ui.moreMenu.classList.contains('is-hidden')));
+const closeMoreMenu = createDropdown(ui.mMore, ui.moreMenu);
 const moreActions: Record<string, () => void> = {
   auto: () => ui.layoutAuto.click(),
   custom: () => ui.layoutCustom.click(),
@@ -1172,14 +1152,8 @@ const moreActions: Record<string, () => void> = {
   mmd: () => runExport('mmd'),
 };
 for (const item of ui.moreMenu.querySelectorAll<HTMLButtonElement>('[data-more]')) {
-  item.addEventListener('click', () => {
-    setMoreMenu(false);
-    moreActions[item.dataset.more ?? '']?.();
-  });
+  item.addEventListener('click', () => moreActions[item.dataset.more ?? '']?.());
 }
-document.addEventListener('pointerdown', (event) => {
-  if (event.target instanceof Node && !ui.mMore.parentElement?.contains(event.target)) setMoreMenu(false);
-});
 phone.addEventListener('change', () => {
   detailsOpen = false;
   showInspector();
@@ -1226,15 +1200,12 @@ ui.zoomIn.addEventListener('click', () => canvas.zoomBy(1.2));
 ui.zoomOut.addEventListener('click', () => canvas.zoomBy(1 / 1.2));
 ui.zoomFit.addEventListener('click', () => fit(true));
 
-ui.exportToggle.addEventListener('click', () => setExportMenu(ui.exportMenu.classList.contains('is-hidden')));
+createDropdown(ui.exportToggle, ui.exportMenu);
 for (const item of ui.exportMenu.querySelectorAll<HTMLButtonElement>('[data-export]')) {
   item.addEventListener('click', () => {
     runExport(item.dataset.export ?? '');
   });
 }
-document.addEventListener('pointerdown', (event) => {
-  if (event.target instanceof Node && !ui.exportMenu.parentElement?.contains(event.target)) setExportMenu(false);
-});
 
 ui.share.addEventListener('click', async () => {
   const link = await shareLink();
@@ -1265,15 +1236,9 @@ function setTitle(title: string): void {
 
 ui.title.addEventListener('change', () => setTitle(ui.title.value));
 
-function setExamplesMenu(open: boolean): void {
-  ui.examplesMenu.classList.toggle('is-hidden', !open);
-  ui.examplesToggle.setAttribute('aria-expanded', String(open));
-}
-
 // Opening replaces the whole diagram in one undo step. The notification's Undo also brings the old name back,
 // as long as nothing was edited since.
 function openDiagram(next: string, title: string, message: string): void {
-  setExamplesMenu(false);
   const previous = { source, title: ui.title.value };
   if (next === previous.source && title === previous.title) return;
   pushHistory();
@@ -1304,10 +1269,7 @@ ui.exampleItems.replaceChildren(
   }),
 );
 ui.newDiagram.addEventListener('click', () => openDiagram(blankSource, blankTitle, 'Started a new diagram'));
-ui.examplesToggle.addEventListener('click', () => setExamplesMenu(ui.examplesMenu.classList.contains('is-hidden')));
-document.addEventListener('pointerdown', (event) => {
-  if (event.target instanceof Node && !ui.examplesMenu.parentElement?.contains(event.target)) setExamplesMenu(false);
-});
+createDropdown(ui.examplesToggle, ui.examplesMenu);
 
 const openGroups = new Set((readStored(groupsKey) ?? 'business').split(',').filter(Boolean).slice(0, 1));
 buildPalette(
@@ -1323,45 +1285,15 @@ buildPalette(
 
 window.addEventListener('resize', () => canvas.setSelection(selection()));
 
-const confirmMs = 3000;
-
-// A destructive button asks once: the first press turns it into a red "Are you sure?", the second runs it.
-// It falls back after a few seconds, or when the next press lands anywhere else.
-function confirmTwice(button: HTMLButtonElement, run: () => void): void {
-  const label = button.querySelector('.label');
-  if (!label) throw new Error(`#${button.id} needs a .label to confirm with.`);
-  const idle = label.textContent;
-  let timer: number | undefined;
-  const disarm = () => {
-    clearTimeout(timer);
-    button.classList.remove('is-armed');
-    label.textContent = idle;
-  };
-  button.addEventListener('click', () => {
-    if (!button.classList.contains('is-armed')) {
-      button.classList.add('is-armed');
-      label.textContent = 'Are you sure?';
-      timer = window.setTimeout(disarm, confirmMs);
-      return;
-    }
-    disarm();
-    run();
-  });
-  document.addEventListener('pointerdown', (event) => {
-    if (!(event.target instanceof Node && button.contains(event.target))) disarm();
-  });
-}
-
 confirmTwice(ui.clear, clearCanvas);
 confirmTwice(ui.mClear, () => {
-  setMoreMenu(false);
+  closeMoreMenu();
   clearCanvas();
 });
 
 function setTool(tool: Tool): void {
   canvas.tool = tool;
-  ui.toolSelect.setAttribute('aria-pressed', String(tool === 'select'));
-  ui.toolHand.setAttribute('aria-pressed', String(tool === 'hand'));
+  pressOnly([ui.toolSelect, ui.toolHand], tool === 'select' ? ui.toolSelect : ui.toolHand);
 }
 ui.toolSelect.addEventListener('click', () => setTool('select'));
 ui.toolHand.addEventListener('click', () => setTool('hand'));
@@ -1399,8 +1331,7 @@ function readMode(): Mode {
 function setMode(next: Mode): void {
   mode = next;
   document.body.classList.toggle('code-mode', next === 'code');
-  ui.modeDesign.setAttribute('aria-pressed', String(next === 'design'));
-  ui.modeCode.setAttribute('aria-pressed', String(next === 'code'));
+  pressOnly([ui.modeDesign, ui.modeCode], next === 'code' ? ui.modeCode : ui.modeDesign);
   writeStored(modeKey, next);
   // The address names Code mode, so a link can open straight into it.
   const url = new URL(location.href);

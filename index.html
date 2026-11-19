@@ -137,7 +137,7 @@
             <button type="button" role="menuitem" data-more="svg">Export SVG</button>
             <button type="button" role="menuitem" data-more="png">Export PNG</button>
             <button type="button" role="menuitem" data-more="mmd">Export text (.mmd)</button>
-            <button class="menu-clear" type="button" role="menuitem" id="m-clear">
+            <button class="menu-clear" type="button" role="menuitem" id="m-clear" data-keep-open>
               <span class="label">Clear canvas</span>
             </button>
           </div>
@@ -428,8 +428,8 @@
       <span class="tray-title">Unplaced</span>
     </div>
 
-    <div class="float zoom appear d2" role="group" aria-label="Canvas controls">
-      <div class="tools" role="group" aria-label="Tool">
+    <div class="float bottom-bar appear d2" role="group" aria-label="Canvas controls">
+      <div class="bar-group tools" role="group" aria-label="Tool">
         <button
           type="button"
           id="tool-select"
@@ -454,7 +454,7 @@
           </svg>
         </button>
       </div>
-      <div class="layouts" role="group" aria-label="Layout">
+      <div class="bar-group layouts" role="group" aria-label="Layout">
         <button
           type="button"
           id="layout-auto"
@@ -485,11 +485,13 @@
           </svg>
         </button>
       </div>
-      <button type="button" id="zoom-out" aria-label="Zoom out" data-tip="Zoom out" data-keys="⌘ scroll">−</button>
-      <output id="zoom-level">100%</output>
-      <button type="button" id="zoom-in" aria-label="Zoom in" data-tip="Zoom in" data-keys="⌘ scroll">+</button>
-      <button class="fit" type="button" id="zoom-fit" data-tip="Fit the whole diagram in view">Fit</button>
-      <div class="modes" id="modes" role="group" aria-label="Mode">
+      <div class="bar-group" role="group" aria-label="Zoom">
+        <button type="button" id="zoom-out" aria-label="Zoom out" data-tip="Zoom out" data-keys="⌘ scroll">−</button>
+        <output id="zoom-level">100%</output>
+        <button type="button" id="zoom-in" aria-label="Zoom in" data-tip="Zoom in" data-keys="⌘ scroll">+</button>
+        <button class="fit" type="button" id="zoom-fit" data-tip="Fit the whole diagram in view">Fit</button>
+      </div>
+      <div class="bar-group modes" id="modes" role="group" aria-label="Mode">
         <button type="button" id="mode-design" aria-pressed="true" data-tip="Design: build on the canvas">
           Design
         </button>

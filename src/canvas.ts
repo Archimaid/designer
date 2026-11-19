@@ -97,7 +97,7 @@ function relationshipId(target: EventTarget | null): string | undefined {
 }
 
 // The side of a box nearest to a point, in the T/R/B/L letters of the positions block.
-export function nearestSide(box: Box, point: Point): Side {
+function nearestSide(box: Box, point: Point): Side {
   const distances: readonly (readonly [Side, number])[] = [
     ['T', Math.abs(point.y - box.y)],
     ['R', Math.abs(point.x - (box.x + box.width))],
@@ -158,16 +158,15 @@ const edgeCursors: Record<Edge, string> = {
 // Elements and notes are the items a person picks, moves and renames on the canvas.
 const itemSelector = '[data-archimate-element], [data-archimate-note]';
 
-function itemId(target: EventTarget | null): string | undefined {
+function idUnder(target: EventTarget | null, selector: string): string | undefined {
   if (!(target instanceof Element)) return undefined;
-  const item = target.closest(itemSelector);
+  const item = target.closest(selector);
   return item?.getAttribute('data-archimate-element') ?? item?.getAttribute('data-archimate-note') ?? undefined;
 }
 
-function elementId(target: EventTarget | null): string | undefined {
-  if (!(target instanceof Element)) return undefined;
-  return target.closest('[data-archimate-element]')?.getAttribute('data-archimate-element') ?? undefined;
-}
+const itemId = (target: EventTarget | null): string | undefined => idUnder(target, itemSelector);
+// Relationships connect elements only, so lines never attach to a note.
+const elementId = (target: EventTarget | null): string | undefined => idUnder(target, '[data-archimate-element]');
 
 export class DiagramCanvas {
   readonly boxes = new Map<string, Box>();

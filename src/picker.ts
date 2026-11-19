@@ -7,7 +7,7 @@ export interface RelationshipChoice {
 }
 
 // All eleven types stay listed until relationship checks against Appendix B land in archimaid.
-export const relationshipChoices: readonly RelationshipChoice[] = [
+const relationshipChoices: readonly RelationshipChoice[] = [
   { glyph: '-->', name: 'Serving', key: 's' },
   { glyph: '==>', name: 'Triggering', key: 't' },
   { glyph: '-.=>', name: 'Flow', key: 'f' },

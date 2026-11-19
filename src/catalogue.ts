@@ -33,7 +33,7 @@ const layerWords = /^(?:Business|Application|Technology)\s+/u;
 // A plain rounded box stands in for types the catalogue draws without a corner symbol.
 const fallbackIcon = [{ d: 'M3 4H13Q14 4 14 5V11Q14 12 13 12H3Q2 12 2 11V5Q2 4 3 4Z' }];
 
-export const paletteTypes: readonly PaletteType[] = Object.entries(elementTypes).map(([key, type]) => ({
+const paletteTypes: readonly PaletteType[] = Object.entries(elementTypes).map(([key, type]) => ({
   key,
   name: type.name,
   label: type.name.replace(layerWords, ''),

@@ -1,6 +1,3 @@
-export type ExportBackground = 'diagram' | 'transparent';
-
-const svgNamespace = 'http://www.w3.org/2000/svg';
 const pngScale = 2;
 // Safari refuses canvases above about 16.7 million pixels and every browser caps a side at 16384 px.
 const maxCanvasPixels = 16_000_000;
@@ -12,10 +9,9 @@ export interface ExportedSvg {
   readonly height: number;
 }
 
-// The preview SVG is sized to its pane (width 100%, a max-width style); a download gets its natural size,
-// so it opens at 100% on its own. A transparent one drops the canvas, as the renderer's own
-// `background: 'transparent'` option does: relationship labels and hollow markers keep their fill.
-export function prepareSvg(previewSvg: string, background: ExportBackground): ExportedSvg {
+// A download gets the diagram's natural size, so it opens at 100% on its own. The renderer already draws
+// without a canvas background, so the export is transparent too.
+export function prepareSvg(previewSvg: string): ExportedSvg {
   const document = new DOMParser().parseFromString(previewSvg, 'image/svg+xml');
   const svg = document.documentElement;
   if (!(svg instanceof SVGSVGElement)) throw new Error('The rendered diagram is not an SVG document.');
@@ -26,24 +22,7 @@ export function prepareSvg(previewSvg: string, background: ExportBackground): Ex
   svg.setAttribute('height', String(height));
   svg.style.removeProperty('max-width');
   if (!svg.getAttribute('style')?.trim()) svg.removeAttribute('style');
-  if (background === 'transparent') canvasRect(svg, width, height)?.remove();
   return { source: new XMLSerializer().serializeToString(svg), width, height };
-}
-
-export function diagramBackground(svg: SVGSVGElement): string | undefined {
-  const { width, height } = svg.viewBox.baseVal;
-  return canvasRect(svg, width, height)?.getAttribute('fill') ?? undefined;
-}
-
-// The renderer paints the canvas as the first full-size rect directly under the root, before any group.
-function canvasRect(svg: SVGSVGElement, width: number, height: number): Element | undefined {
-  return Array.from(svg.children).find(
-    (child) =>
-      child.namespaceURI === svgNamespace &&
-      child.localName === 'rect' &&
-      Number(child.getAttribute('width')) === width &&
-      Number(child.getAttribute('height')) === height,
-  );
 }
 
 export async function renderPng({ source, width, height }: ExportedSvg): Promise<Blob> {

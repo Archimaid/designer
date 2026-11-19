@@ -105,12 +105,7 @@ button {
   stroke-linejoin: round;
 }
 
-.mono {
-  font-family: var(--font-mono);
-}
-
 /* Connectors such as --> must read as typed, not as JetBrains Mono's arrow ligatures. */
-.mono,
 code,
 kbd,
 .cm-editor {
@@ -573,8 +568,7 @@ kbd,
   transform: translateY(-1px);
 }
 
-.btn-dark,
-.btn[aria-pressed='true'] {
+.btn-dark {
   background: var(--ink);
   color: var(--white);
 }
@@ -696,6 +690,12 @@ kbd,
 
 .palette.above-tray {
   bottom: 112px;
+}
+
+.palette-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .palette-head {
@@ -912,14 +912,6 @@ kbd,
   background: #f4f6f8;
 }
 
-.palette-hint {
-  margin: auto 0 0;
-  padding-top: 8px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--ink-muted);
-}
-
 .rail {
   left: 24px;
   top: 0;
@@ -932,6 +924,11 @@ kbd,
   gap: 6px;
   padding: 6px;
   border-radius: 999px;
+}
+
+.rail-btn svg {
+  width: 18px;
+  height: 18px;
 }
 
 .rail-item {
@@ -951,11 +948,6 @@ kbd,
   transition:
     transform 0.15s,
     box-shadow 0.15s;
-}
-
-.rail-btn svg {
-  width: 18px;
-  height: 18px;
 }
 
 .rail-item:hover .rail-btn,
@@ -1361,10 +1353,6 @@ textarea.input {
   color: var(--code-error);
 }
 
-.ghost-btn.round {
-  padding: 0;
-}
-
 .ghost-btn .icon {
   width: 14px;
   height: 14px;
@@ -1559,7 +1547,7 @@ textarea.input {
 }
 
 /* The bar centres itself with margins, because the entrance animation owns the transform. */
-.zoom {
+.bottom-bar {
   left: 0;
   right: 0;
   width: max-content;
@@ -1567,12 +1555,15 @@ textarea.input {
   bottom: 24px;
   display: flex;
   align-items: center;
-  gap: 4px;
   padding: 6px;
   border-radius: 999px;
 }
 
-.zoom button {
+.bottom-bar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-width: 40px;
   height: 40px;
   border: 0;
@@ -1583,23 +1574,40 @@ textarea.input {
   cursor: pointer;
 }
 
-.zoom button.fit {
+/* Groups of related controls, each set off from the one before by a hairline. */
+.bar-group {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.bar-group + .bar-group {
+  margin-left: 4px;
+  padding-left: 6px;
+  border-left: 1.5px solid var(--hairline);
+}
+
+.bar-group button[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--white);
+}
+
+.bottom-bar .fit,
+.modes button {
   padding: 0 12px;
   font-size: 13px;
   font-weight: 500;
 }
 
-.zoom .modes {
-  position: relative;
-  display: inline-flex;
-  gap: 2px;
-  margin-left: 2px;
-  padding-left: 4px;
-  border-left: 1.5px solid var(--hairline);
+.bottom-bar output {
+  min-width: 44px;
+  text-align: center;
+  font: 12px var(--font-mono);
 }
 
 /* One pill slides between the modes; main.ts sets its place and width from the pressed button. */
-.zoom .modes::before {
+.modes::before {
   content: '';
   position: absolute;
   top: 0;
@@ -1611,56 +1619,21 @@ textarea.input {
   transform: translateX(var(--pill-x, 0));
 }
 
-.zoom .modes.is-ready::before {
+.modes.is-ready::before {
   transition:
     transform 0.28s var(--ease-out),
     width 0.28s var(--ease-out);
 }
 
-.zoom .modes button {
+.modes button {
   position: relative;
-  transition: color 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  font-size: 13px;
-  font-weight: 500;
   color: var(--ink-muted);
+  transition: color 0.2s ease;
 }
 
-.zoom .modes button[aria-pressed='true'] {
+.modes button[aria-pressed='true'] {
   background: transparent;
-  color: var(--white);
   font-weight: 600;
-}
-
-.zoom .tools,
-.zoom .layouts {
-  display: inline-flex;
-  gap: 2px;
-  margin-right: 2px;
-  padding-right: 4px;
-  border-right: 1.5px solid var(--hairline);
-}
-
-.zoom .tools button,
-.zoom .layouts button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.zoom .tools button[aria-pressed='true'],
-.zoom .layouts button[aria-pressed='true'] {
-  background: var(--ink);
-  color: var(--white);
-}
-
-.zoom output {
-  min-width: 44px;
-  text-align: center;
-  font: 12px var(--font-mono);
 }
 
 .toast {
@@ -2239,7 +2212,7 @@ textarea.input {
     min-height: 40px;
   }
 
-  .zoom {
+  .bottom-bar {
     left: 12px;
     right: auto;
     margin: 0;
@@ -2247,22 +2220,14 @@ textarea.input {
     box-shadow: 4px 4px 0 var(--ink);
   }
 
-  /* The Canvas and Text tabs are the phone's modes, and layout sits in the More menu, beside Add element. */
-  .zoom .modes,
-  .zoom .layouts {
-    display: none;
-  }
-
-  /* Pinching zooms on a phone, which leaves room for the tools beside the Add element button. */
-  .zoom output,
+  /* The Canvas and Text tabs are the phone's modes, layout sits in the More menu, and pinching zooms,
+     which leaves room for the tools and Fit beside the Add element button. */
+  .modes,
+  .layouts,
+  .bottom-bar output,
   #zoom-in,
   #zoom-out {
     display: none;
-  }
-
-  .zoom button {
-    min-width: 40px;
-    height: 40px;
   }
 
   .tray {
@@ -2332,13 +2297,13 @@ textarea.input {
   }
 
   body.has-sheet .fab,
-  body.has-sheet .zoom {
+  body.has-sheet .bottom-bar {
     display: none !important;
   }
 
   /* The Text tab covers the canvas, so the canvas's own controls step aside. */
   body.text-view .fab,
-  body.text-view .zoom,
+  body.text-view .bottom-bar,
   body.text-view .tray,
   body.text-view .sheet,
   body.text-view .inspector,

@@ -174,14 +174,26 @@ export function addElement(source: string, element: NewElement): string {
   return element.at ? setPosition(added, element.id, element.at) : added;
 }
 
-function elementLineIndex(source: readonly string[], id: string): number {
-  const pattern = new RegExp(`^\\s*element\\s+\\S+\\s+${escapeRegExp(id)}\\s+${quotedText}`, 'u');
+// What declares an element or a note, up to its quoted name or text.
+const elementPrefix = (id: string): string => String.raw`\s*element\s+\S+\s+${escapeRegExp(id)}\s+`;
+const notePrefix = (id: string): string => String.raw`\s*note\s+${escapeRegExp(id)}\s+`;
+
+function statementIndex(source: readonly string[], prefix: string): number {
+  const pattern = new RegExp(`^${prefix}${quotedText}`, 'u');
   return source.findIndex((line) => pattern.test(line));
 }
 
-function noteLineIndex(source: readonly string[], id: string): number {
-  const pattern = new RegExp(`^\\s*note\\s+${escapeRegExp(id)}\\s+${quotedText}`, 'u');
-  return source.findIndex((line) => pattern.test(code(line)));
+const elementLineIndex = (source: readonly string[], id: string): number => statementIndex(source, elementPrefix(id));
+
+// Rewrites the quoted name or text of a statement and keeps the rest of its line, such as a trailing comment.
+function rewriteQuoted(source: string, prefix: string, text: string): string {
+  const result = lines(source);
+  const pattern = new RegExp(`^(${prefix})${quotedText}`, 'u');
+  const index = result.findIndex((line) => pattern.test(line));
+  const line = result[index];
+  if (line === undefined) return source;
+  result[index] = line.replace(pattern, (_, kept: string) => kept + JSON.stringify(text));
+  return join(result);
 }
 
 // Notes follow the other notes, or close the statements before the positions block, as the examples write them.
@@ -203,23 +215,11 @@ export function addNote(source: string, id: string, text: string): string {
 }
 
 export function setNoteText(source: string, id: string, text: string): string {
-  const result = lines(source);
-  const index = noteLineIndex(result, id);
-  const line = result[index];
-  if (line === undefined) return source;
-  const pattern = new RegExp(`^(\\s*note\\s+${escapeRegExp(id)}\\s+)${quotedText}`, 'u');
-  result[index] = line.replace(pattern, (_, prefix: string) => prefix + JSON.stringify(text));
-  return join(result);
+  return rewriteQuoted(source, notePrefix(id), text);
 }
 
 export function renameElement(source: string, id: string, name: string): string {
-  const result = lines(source);
-  const index = elementLineIndex(result, id);
-  const line = result[index];
-  if (line === undefined) return source;
-  const pattern = new RegExp(`^(\\s*element\\s+\\S+\\s+${escapeRegExp(id)}\\s+)${quotedText}`, 'u');
-  result[index] = line.replace(pattern, (_, prefix: string) => prefix + JSON.stringify(name));
-  return join(result);
+  return rewriteQuoted(source, elementPrefix(id), name);
 }
 
 // The type word in an element or long-form relationship declaration is never an ID, even when it is spelt alike.
@@ -380,7 +380,7 @@ export function clearDiagram(source: string): string {
 export function removeElement(source: string, id: string): string {
   const result = lines(source);
   const elementIndex = elementLineIndex(result, id);
-  const index = elementIndex >= 0 ? elementIndex : noteLineIndex(result, id);
+  const index = elementIndex >= 0 ? elementIndex : statementIndex(result, notePrefix(id));
   if (index < 0) return source;
   const depth = depths(result);
   let end = index;

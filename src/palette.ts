@@ -1,4 +1,4 @@
-import { paletteGroups, tileIcon, type PaletteType } from './catalogue.ts';
+import { iconSvg, paletteGroups, tileIcon, type PaletteGroup, type PaletteType } from './catalogue.ts';
 
 export type DragPayload =
   { readonly kind: 'type'; readonly type: PaletteType } | { readonly kind: 'place'; readonly id: string };
@@ -69,15 +69,26 @@ export function makeDraggable(tile: HTMLElement, payload: () => DragPayload, tar
   });
 }
 
-function typeTile(type: PaletteType, target: DropTarget): HTMLButtonElement {
+function typeButton(type: PaletteType, label: string): HTMLButtonElement {
   const tile = document.createElement('button');
   tile.type = 'button';
   tile.className = `tile t-${type.category}`;
-  tile.dataset.tip = `${type.name}: drag onto the canvas`;
   tile.setAttribute('aria-label', `Add ${type.name}`);
-  tile.append(tileIcon(type), type.label);
+  tile.append(tileIcon(type), label);
+  return tile;
+}
+
+function typeTile(type: PaletteType, target: DropTarget): HTMLButtonElement {
+  const tile = typeButton(type, type.label);
+  tile.dataset.tip = `${type.name}: drag onto the canvas`;
   makeDraggable(tile, () => ({ kind: 'type', type }), target);
   return tile;
+}
+
+// A layer's first type stands for the whole layer in group headers, rail buttons and chips.
+function groupIcon(group: PaletteGroup): HTMLSpanElement[] {
+  const first = group.types[0];
+  return first ? [tileIcon(first, true)] : [];
 }
 
 export interface PaletteOptions {
@@ -98,18 +109,14 @@ export function buildPalette(options: PaletteOptions, target: DropTarget): void 
       if (!types.length) continue;
       const open = Boolean(query) || openGroups.has(group.category);
       const section = document.createElement('div');
-      section.style.display = 'flex';
-      section.style.flexDirection = 'column';
-      section.style.gap = '4px';
+      section.className = 'palette-group';
       const head = document.createElement('button');
       head.type = 'button';
       head.className = 'group-head';
       head.setAttribute('aria-expanded', String(open));
       const name = document.createElement('span');
       name.className = `group-name t-${group.category}`;
-      const first = group.types[0];
-      if (first) name.append(tileIcon(first, true));
-      name.append(group.name);
+      name.append(...groupIcon(group), group.name);
       const count = document.createElement('span');
       count.className = 'group-count';
       count.textContent = open ? '−' : String(group.types.length);
@@ -143,7 +150,7 @@ export function buildPalette(options: PaletteOptions, target: DropTarget): void 
     button.className = `rail-btn t-${group.category}`;
     button.setAttribute('aria-label', `${group.name} elements`);
     const first = group.types[0];
-    if (first) button.append(tileIcon(first).firstChild ?? '');
+    if (first) button.append(iconSvg(first));
     const popout = document.createElement('div');
     popout.className = 'popout';
     const title = document.createElement('span');
@@ -186,9 +193,7 @@ export function buildAddSheet({ chips, tiles, search, pick }: AddSheetOptions): 
         chip.setAttribute('role', 'tab');
         const active = !query && group.category === category;
         chip.setAttribute('aria-selected', String(active));
-        const first = group.types[0];
-        if (first) chip.append(tileIcon(first, true));
-        chip.append(group.name);
+        chip.append(...groupIcon(group), group.name);
         chip.addEventListener('click', () => {
           category = group.category;
           search.value = '';
@@ -202,11 +207,7 @@ export function buildAddSheet({ chips, tiles, search, pick }: AddSheetOptions): 
       : (paletteGroups.find((group) => group.category === category)?.types ?? []);
     tiles.replaceChildren(
       ...types.map((type) => {
-        const tile = document.createElement('button');
-        tile.type = 'button';
-        tile.className = `tile t-${type.category}`;
-        tile.setAttribute('aria-label', `Add ${type.name}`);
-        tile.append(tileIcon(type), query ? type.name : type.label);
+        const tile = typeButton(type, query ? type.name : type.label);
         tile.addEventListener('click', () => pick(type));
         return tile;
       }),
