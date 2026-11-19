@@ -1,25 +1,11 @@
+import { gridUnit, layoutPadding, type Box, type Point, type Side, type Snapped } from './geometry.ts';
+
 // The rendered SVG sits on a stage whose coordinates are the renderer's layout coordinates, so grid maths,
 // overlays and hit-testing all share one space. Pan and zoom are a CSS transform on the stage.
-
-export interface Point {
-  readonly x: number;
-  readonly y: number;
-}
-
-export interface Box extends Point {
-  readonly width: number;
-  readonly height: number;
-}
-
-export interface Snapped {
-  readonly box: Box;
-  readonly label: string;
-}
 
 export type End = 'source' | 'target';
 export type Tool = 'select' | 'hand';
 export type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
-export type Side = 'T' | 'R' | 'B' | 'L';
 
 export interface CanvasEvents {
   readonly select: (id: string | null) => void;
@@ -37,12 +23,11 @@ export interface CanvasEvents {
   readonly rename: (id: string) => void;
 }
 
-// The renderer leaves this margin around a custom layout before the first grid line.
-export const layoutPadding = 24;
-export const gridUnit = 20;
 const minZoom = 0.25;
 const maxZoom = 3;
 const dragThreshold = 4;
+// Matches the stage transition in styles.css.
+const easeMs = 320;
 const svgNamespace = 'http://www.w3.org/2000/svg';
 
 type Gesture =
@@ -95,7 +80,7 @@ function relationshipId(target: EventTarget | null): string | undefined {
 }
 
 // The side of a box nearest to a point, in the T/R/B/L letters of the positions block.
-export function nearestSide(box: Box, point: Point): Side {
+function nearestSide(box: Box, point: Point): Side {
   const distances: readonly (readonly [Side, number])[] = [
     ['T', Math.abs(point.y - box.y)],
     ['R', Math.abs(point.x - (box.x + box.width))],
@@ -153,13 +138,23 @@ const edgeCursors: Record<Edge, string> = {
   se: 'nwse-resize',
 };
 
-function elementId(target: EventTarget | null): string | undefined {
+// Elements and notes are the items a person picks, moves and renames on the canvas.
+const itemSelector = '[data-archimate-element], [data-archimate-note]';
+
+function idUnder(target: EventTarget | null, selector: string): string | undefined {
   if (!(target instanceof Element)) return undefined;
-  return target.closest('[data-archimate-element]')?.getAttribute('data-archimate-element') ?? undefined;
+  const item = target.closest(selector);
+  return item?.getAttribute('data-archimate-element') ?? item?.getAttribute('data-archimate-note') ?? undefined;
 }
+
+const itemId = (target: EventTarget | null): string | undefined => idUnder(target, itemSelector);
+// Relationships connect elements only, so lines never attach to a note.
+const elementId = (target: EventTarget | null): string | undefined => idUnder(target, '[data-archimate-element]');
 
 export class DiagramCanvas {
   readonly boxes = new Map<string, Box>();
+  // Notes are moved and renamed like elements, but take no relationships and keep the size of their text.
+  readonly notes = new Set<string>();
   private readonly edges = new Map<string, { start: Point; end: Point }>();
   private selectedRelationship: string | null = null;
   private readonly headers = new Map<string, number>();
@@ -195,7 +190,7 @@ export class DiagramCanvas {
       this.cancelGesture();
     });
     root.addEventListener('dblclick', (event) => {
-      const id = elementId(event.target);
+      const id = itemId(event.target);
       if (id) events.rename(id);
     });
     root.addEventListener('wheel', (event) => this.wheel(event), { passive: false });
@@ -257,11 +252,14 @@ export class DiagramCanvas {
       hit.setAttribute('data-hit-for', id);
       path.after(hit);
     }
+    this.notes.clear();
     let offset: Point | undefined;
-    for (const group of svg.querySelectorAll<SVGGElement>('[data-archimate-element]')) {
-      const id = group.getAttribute('data-archimate-element');
+    for (const group of svg.querySelectorAll<SVGGElement>(itemSelector)) {
+      const note = group.getAttribute('data-archimate-note');
+      const id = group.getAttribute('data-archimate-element') ?? note;
       const position = parseTranslate(group);
       if (!id || !position) continue;
+      if (note) this.notes.add(note);
       const matrix = group.getCTM();
       if (!offset && matrix) offset = { x: matrix.e - position.x, y: matrix.f - position.y };
       const outline = group.querySelector(':scope > rect');
@@ -314,7 +312,7 @@ export class DiagramCanvas {
         const handle = document.createElement('span');
         handle.className = 'handle endpoint';
         handle.dataset.end = end;
-        handle.title = 'Drag onto another element to reconnect, or onto a side of this one to pin it';
+        handle.dataset.tip = 'Drag onto another element to reconnect, or onto a side of this one to pin it';
         handle.style.left = `${point.x}px`;
         handle.style.top = `${point.y}px`;
         this.overlay.append(handle);
@@ -335,7 +333,7 @@ export class DiagramCanvas {
       });
       this.overlay.append(ring);
     }
-    const box = this.single ? this.boxes.get(this.single) : undefined;
+    const box = this.single && !this.notes.has(this.single) ? this.boxes.get(this.single) : undefined;
     if (!box) return;
     // Edge and corner strips sit under the round connect handles, which win where they overlap.
     // Fingers need larger targets than a mouse pointer.
@@ -355,7 +353,7 @@ export class DiagramCanvas {
       const zone = document.createElement('span');
       zone.className = `resize-zone${edge.length === 2 ? ' corner' : ''}`;
       zone.dataset.edge = edge;
-      zone.title = 'Drag to resize';
+      zone.dataset.tip = 'Drag to resize';
       Object.assign(zone.style, {
         left: `${x}px`,
         top: `${y}px`,
@@ -375,7 +373,7 @@ export class DiagramCanvas {
       const handle = document.createElement('span');
       handle.className = 'handle';
       handle.dataset.side = side;
-      handle.title = 'Drag to connect';
+      handle.dataset.tip = 'Drag to connect';
       handle.style.left = `${x}px`;
       handle.style.top = `${y}px`;
       this.overlay.append(handle);
@@ -417,18 +415,20 @@ export class DiagramCanvas {
   }
 
   // An input over the element; Enter or leaving it commits, Escape keeps the current name.
+  // A note's text may hold line breaks, so it is edited in a text area where Shift+Enter starts a new line.
   startRename(id: string, initial: string, commit: (name: string) => void, done: () => void): void {
     const box = this.boxes.get(id);
     if (!box) return;
-    const input = document.createElement('input');
-    input.className = 'rename';
+    const note = this.notes.has(id);
+    const input = document.createElement(note ? 'textarea' : 'input');
+    input.className = note ? 'rename rename-note' : 'rename';
     input.value = initial;
-    input.setAttribute('aria-label', 'Element name');
+    input.setAttribute('aria-label', note ? 'Note text' : 'Element name');
     Object.assign(input.style, {
       left: `${box.x}px`,
       top: `${box.y}px`,
       width: `${Math.max(box.width, 140)}px`,
-      height: `${Math.min(box.height, 60)}px`,
+      height: note ? `${Math.max(box.height, 60)}px` : `${Math.min(box.height, 60)}px`,
     });
     let finished = false;
     const finish = (save: boolean) => {
@@ -439,13 +439,17 @@ export class DiagramCanvas {
       if (save && name && name !== initial) commit(name);
       else done();
     };
-    input.addEventListener('keydown', (event) => {
+    const field: HTMLElement = input;
+    field.addEventListener('keydown', (event) => {
       event.stopPropagation();
-      if (event.key === 'Enter') finish(true);
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        finish(true);
+      }
       if (event.key === 'Escape') finish(false);
     });
-    input.addEventListener('blur', () => finish(true));
-    input.addEventListener('pointerdown', (event) => event.stopPropagation());
+    field.addEventListener('blur', () => finish(true));
+    field.addEventListener('pointerdown', (event) => event.stopPropagation());
     this.overlay.append(input);
     input.focus();
     input.select();
@@ -469,10 +473,11 @@ export class DiagramCanvas {
     this.applyTransform();
   }
 
-  // Fits the drawing into the space the floating panels leave free.
-  fit(free: { left: number; right: number; top: number; bottom: number }): void {
+  // Fits the drawing into the space the floating panels leave free; animated, it glides there instead of jumping.
+  fit(free: { left: number; right: number; top: number; bottom: number }, animate = false): void {
     const boxes = [...this.boxes.values()];
     if (!boxes.length) return;
+    if (animate) this.ease();
     const left = Math.min(...boxes.map(({ x }) => x)) - 40;
     const top = Math.min(...boxes.map(({ y }) => y)) - 40;
     const right = Math.max(...boxes.map(({ x, width }) => x + width)) + 40;
@@ -486,6 +491,20 @@ export class DiagramCanvas {
       y: free.top + (height - (bottom - top) * this.scale) / 2 - top * this.scale,
     };
     this.applyTransform();
+  }
+
+  private easeTimer: number | undefined;
+
+  private ease(): void {
+    clearTimeout(this.easeTimer);
+    this.root.classList.add('is-easing');
+    this.easeTimer = window.setTimeout(() => this.stopEasing(), easeMs);
+  }
+
+  // Pointer and wheel input take over at once, so the view never lags behind a hand.
+  private stopEasing(): void {
+    clearTimeout(this.easeTimer);
+    this.root.classList.remove('is-easing');
   }
 
   private applyTransform(): void {
@@ -529,6 +548,7 @@ export class DiagramCanvas {
   }
 
   private pointerDown(event: PointerEvent): void {
+    this.stopEasing();
     if (event.button !== 0 && event.button !== 1) return;
     const client = { x: event.clientX, y: event.clientY };
     this.pointers.set(event.pointerId, client);
@@ -567,7 +587,7 @@ export class DiagramCanvas {
   }
 
   private pressCanvas(event: PointerEvent, target: Element | null, client: Point): void {
-    const id = event.button === 0 ? elementId(target) : undefined;
+    const id = event.button === 0 ? itemId(target) : undefined;
     const relationship = event.button === 0 && !id ? relationshipId(target) : undefined;
     const additive = event.shiftKey;
     const isSelected = id !== undefined && this.selection.includes(id);
@@ -770,7 +790,12 @@ export class DiagramCanvas {
   }
 
   private groupOf(id: string): SVGGElement | null {
-    return this.svg?.querySelector<SVGGElement>(`[data-archimate-element="${CSS.escape(id)}"]`) ?? null;
+    const escaped = CSS.escape(id);
+    return (
+      this.svg?.querySelector<SVGGElement>(
+        `[data-archimate-element="${escaped}"], [data-archimate-note="${escaped}"]`,
+      ) ?? null
+    );
   }
 
   // The element a line would attach to gets a heavy outline while the pointer is over it.
@@ -796,6 +821,7 @@ export class DiagramCanvas {
 
   private wheel(event: WheelEvent): void {
     event.preventDefault();
+    this.stopEasing();
     if (event.ctrlKey || event.metaKey) {
       this.zoomBy(Math.exp(-event.deltaY * 0.01), { x: event.clientX, y: event.clientY });
       return;

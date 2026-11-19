@@ -33,7 +33,7 @@ const layerWords = /^(?:Business|Application|Technology)\s+/u;
 // A plain rounded box stands in for types the catalogue draws without a corner symbol.
 const fallbackIcon = [{ d: 'M3 4H13Q14 4 14 5V11Q14 12 13 12H3Q2 12 2 11V5Q2 4 3 4Z' }];
 
-export const paletteTypes: readonly PaletteType[] = Object.entries(elementTypes).map(([key, type]) => ({
+const paletteTypes: readonly PaletteType[] = Object.entries(elementTypes).map(([key, type]) => ({
   key,
   name: type.name,
   label: type.name.replace(layerWords, ''),
@@ -41,8 +41,20 @@ export const paletteTypes: readonly PaletteType[] = Object.entries(elementTypes)
   icon: type.notation?.icon?.length ? type.notation.icon : fallbackIcon,
 }));
 
+// A note is no ArchiMate element, but it is placed like one, so it sits with the other loose ends under Other.
+export const notePaletteType: PaletteType = {
+  key: 'note',
+  name: 'Note',
+  label: 'Note',
+  category: 'composite',
+  icon: [{ d: 'M3 2H10L13 5V14H3Z' }, { d: 'M10 2V5H13' }],
+};
+
 export const paletteGroups: readonly PaletteGroup[] = groupNames
-  .map(([category, name]) => ({ category, name, types: paletteTypes.filter((type) => type.category === category) }))
+  .map(([category, name]) => {
+    const types = paletteTypes.filter((type) => type.category === category);
+    return { category, name, types: category === 'composite' ? [...types, notePaletteType] : types };
+  })
   .filter(({ types }) => types.length > 0);
 
 const typesByKey = new Map(paletteTypes.map((type) => [type.key, type]));

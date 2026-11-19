@@ -1,4 +1,5 @@
 import { elementTypes, relationshipConnectors, relationshipTypes } from 'archimaid/language';
+import { connectorGlyphs, escapeRegExp, identifier, quotedText } from './grammar.ts';
 
 // Every canvas gesture is one of these pure text edits. The source stays the only state, so the text panel,
 // undo, share links and the renderer all see exactly what the designer wrote.
@@ -10,9 +11,7 @@ export interface GridPoint {
 
 export type LayoutName = 'architecture' | 'framework' | 'graph' | 'custom';
 
-const quotedText = String.raw`"(?:[^"\\]|\\.)*"`;
-const identifierPattern = /[A-Za-z_]\w*(?:-\w+)*/gu;
-const connectorGlyphs = Object.keys(relationshipConnectors).sort((left, right) => right.length - left.length);
+const identifierPattern = new RegExp(identifier, 'gu');
 const defaultIndent = '  ';
 
 // IDs never reuse a type name or a keyword, so a reader can always tell an ID from what it describes.
@@ -39,10 +38,6 @@ function layerRank(type: string): number {
   const category = Object.entries(elementTypes).find(([key]) => key === type)?.[1].category;
   const rank = category ? layerOrder.indexOf(category) : -1;
   return rank < 0 ? layerOrder.length : rank;
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 function lines(source: string): string[] {
@@ -174,19 +169,52 @@ export function addElement(source: string, element: NewElement): string {
   return element.at ? setPosition(added, element.id, element.at) : added;
 }
 
-function elementLineIndex(source: readonly string[], id: string): number {
-  const pattern = new RegExp(`^\\s*element\\s+\\S+\\s+${escapeRegExp(id)}\\s+${quotedText}`, 'u');
+// What declares an element or a note, up to its quoted name or text.
+const elementPrefix = (id: string): string => String.raw`\s*element\s+\S+\s+${escapeRegExp(id)}\s+`;
+const notePrefix = (id: string): string => String.raw`\s*note\s+${escapeRegExp(id)}\s+`;
+
+function statementIndex(source: readonly string[], prefix: string): number {
+  const pattern = new RegExp(`^${prefix}${quotedText}`, 'u');
   return source.findIndex((line) => pattern.test(line));
 }
 
-export function renameElement(source: string, id: string, name: string): string {
+const elementLineIndex = (source: readonly string[], id: string): number => statementIndex(source, elementPrefix(id));
+
+// Rewrites the quoted name or text of a statement and keeps the rest of its line, such as a trailing comment.
+function rewriteQuoted(source: string, prefix: string, text: string): string {
   const result = lines(source);
-  const index = elementLineIndex(result, id);
+  const pattern = new RegExp(`^(${prefix})${quotedText}`, 'u');
+  const index = result.findIndex((line) => pattern.test(line));
   const line = result[index];
   if (line === undefined) return source;
-  const pattern = new RegExp(`^(\\s*element\\s+\\S+\\s+${escapeRegExp(id)}\\s+)${quotedText}`, 'u');
-  result[index] = line.replace(pattern, (_, prefix: string) => prefix + JSON.stringify(name));
+  result[index] = line.replace(pattern, (_, kept: string) => kept + JSON.stringify(text));
   return join(result);
+}
+
+// Notes follow the other notes, or close the statements before the positions block, as the examples write them.
+export function addNote(source: string, id: string, text: string): string {
+  const result = lines(source);
+  const depth = depths(result);
+  const header = headerIndex(result);
+  let insertAt = -1;
+  for (let index = header + 1; index < result.length; index++) {
+    if (depth[index] === 0 && /^\s*note\s/u.test(code(result[index] ?? ''))) insertAt = index + 1;
+  }
+  if (insertAt < 0) {
+    const block = positionsBlock(result);
+    insertAt = block ? block.open : lastContentIndex(result) + 1;
+    while (insertAt > header + 1 && !result[insertAt - 1]?.trim()) insertAt--;
+  }
+  result.splice(insertAt, 0, `${elementIndent(result)}note ${id} ${JSON.stringify(text)}`);
+  return join(result);
+}
+
+export function setNoteText(source: string, id: string, text: string): string {
+  return rewriteQuoted(source, notePrefix(id), text);
+}
+
+export function renameElement(source: string, id: string, name: string): string {
+  return rewriteQuoted(source, elementPrefix(id), name);
 }
 
 // The type word in an element or long-form relationship declaration is never an ID, even when it is spelt alike.
@@ -337,13 +365,17 @@ export function clearDiagram(source: string): string {
   const settings = result.filter(
     (line, index) => index > header && depth[index] === 0 && /^\s*(?:layout|direction)\s+\S+/u.test(code(line)),
   );
-  return join([...result.slice(0, header + 1), ...settings]);
+  const indent = elementIndent(result);
+  // Custom layout without a positions block draws a warning, so a cleared custom diagram keeps an empty one.
+  const positions = readLayout(source) === 'custom' ? ['', `${indent}positions {`, `${indent}}`] : [];
+  return join([...result.slice(0, header + 1), ...settings, ...positions]);
 }
 
-// Removes the element, its block and everything that refers to it or to its nested elements.
+// Removes the element or note, an element's block, and everything that refers to it or to its nested elements.
 export function removeElement(source: string, id: string): string {
   const result = lines(source);
-  const index = elementLineIndex(result, id);
+  const elementIndex = elementLineIndex(result, id);
+  const index = elementIndex >= 0 ? elementIndex : statementIndex(result, notePrefix(id));
   if (index < 0) return source;
   const depth = depths(result);
   let end = index;

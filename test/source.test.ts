@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import { validateArchiMate } from 'archimaid/language';
 import {
   addElement,
+  addNote,
+  setNoteText,
   clearDiagram,
   addRelationship,
   readAnchor,
@@ -187,7 +189,24 @@ test('sets a size on a position and replaces an earlier one', () => {
 
 test('clearing keeps the header and the layout setting only', () => {
   const cleared = clearDiagram(`%% kept\n${base}`);
-  assert.equal(cleared, '%% kept\narchimate-beta\n  layout custom');
-  assert.deepEqual(errors(cleared), []);
+  assert.equal(cleared, '%% kept\narchimate-beta\n  layout custom\n\n  positions {\n  }');
+  assert.deepEqual(validateArchiMate(cleared).diagnostics, []);
+  assert.equal(clearDiagram(cleared), cleared);
+  assert.equal(clearDiagram('archimate-beta\n  direction LR\n  element node n "N"'), 'archimate-beta\n  direction LR');
   assert.equal(clearDiagram('not a diagram'), 'not a diagram');
+});
+
+test('adds, rewrites and removes a note with everything that names it', () => {
+  let result = addNote(base, 'note2', 'Check "this"\nfirst');
+  assert.deepEqual(errors(result), []);
+  assert.ok(result.includes('  clerk --> oms\n  note note2 "Check \\"this\\"\\nfirst"\n\n  positions {'));
+  assert.equal(validateArchiMate(result).model?.notes?.[0]?.text, 'Check "this"\nfirst');
+  result = addNote(setPosition(result, 'note2', { x: 4, y: 6 }), 'note3', 'Second');
+  assert.ok(result.includes('  note note2 "Check \\"this\\"\\nfirst"\n  note note3 "Second"\n'));
+  result = setNoteText(result, 'note3', 'Renamed');
+  assert.ok(result.includes('  note note3 "Renamed"'));
+  result = removeElement(result, 'note2');
+  assert.ok(!result.includes('note2'));
+  assert.deepEqual(errors(result), []);
+  assert.equal(addNote('archimate-beta\n', 'note', 'Only'), 'archimate-beta\n  note note "Only"\n');
 });

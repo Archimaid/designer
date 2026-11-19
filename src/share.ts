@@ -3,7 +3,7 @@ const hashPrefix = '#code=';
 export type SharedSource =
   { readonly kind: 'none' } | { readonly kind: 'source'; readonly source: string } | { readonly kind: 'invalid' };
 
-export async function encodeShareHash(source: string): Promise<string> {
+async function encodeShareHash(source: string): Promise<string> {
   const compressed = new Blob([source]).stream().pipeThrough(new CompressionStream('deflate-raw'));
   const bytes = new Uint8Array(await new Response(compressed).arrayBuffer());
   return hashPrefix + toBase64Url(bytes);
@@ -31,4 +31,8 @@ function toBase64Url(bytes: Uint8Array): string {
 function fromBase64Url(text: string): Uint8Array<ArrayBuffer> {
   const binary = atob(text.replaceAll('-', '+').replaceAll('_', '/'));
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+export async function shareLink(source: string): Promise<string> {
+  return location.origin + location.pathname + (await encodeShareHash(source));
 }

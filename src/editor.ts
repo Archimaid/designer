@@ -6,8 +6,6 @@ import type { ArchiMateDiagnostic } from 'archimaid/language';
 import { archimateSyntax } from './syntax.ts';
 
 export interface SourceEditor {
-  readonly source: () => string;
-  readonly replaceSource: (source: string) => void;
   readonly rewriteSource: (source: string) => void;
   readonly showDiagnostics: (diagnostics: readonly ArchiMateDiagnostic[]) => void;
   readonly revealDiagnostic: (diagnostic: ArchiMateDiagnostic) => void;
@@ -118,12 +116,6 @@ export function createSourceEditor(
   onCursorMove?.(cursorPosition(view.state));
 
   return {
-    source: () => view.state.doc.toString(),
-    // A normal transaction, so loading an example can be undone with the editor's undo.
-    replaceSource(source) {
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: source }, selection: { anchor: 0 } });
-      view.scrollDOM.scrollTo({ top: 0, left: 0 });
-    },
     // For a rewrite that keeps the lines in place: the cursor stays on its line and the view does not scroll.
     rewriteSource(source) {
       const { scrollTop, scrollLeft } = view.scrollDOM;
