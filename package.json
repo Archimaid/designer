@@ -24,7 +24,7 @@
     "@fontsource-variable/space-grotesk": "5.3.0",
     "@fontsource/jetbrains-mono": "5.3.0",
     "@lezer/highlight": "1.2.5",
-    "archimaid": "0.2.0",
+    "archimaid": "0.2.1",
     "codemirror": "6.0.2",
     "mermaid": "12.3.0"
   },
