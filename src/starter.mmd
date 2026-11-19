@@ -1,0 +1,25 @@
+archimate-beta
+  layout custom
+
+  element businessRole clerk "Fulfilment clerk"
+  element businessProcess fulfil "Fulfil order"
+  element applicationService orders "Order service"
+  element applicationComponent oms "Order management" {
+    element applicationComponent billing "Billing"
+  }
+  element node server "App server"
+  description orders "Accepts and tracks customer orders."
+  clerk @==> fulfil
+  orders --> fulfil
+  oms ..|> orders
+  server --> oms
+
+  positions {
+    clerk at 0 0
+    fulfil at 10 0 size 9x3
+    orders at 10 8
+    oms at 8 14
+    billing at 1 0
+    server at 26 16
+    orders --> fulfil from T to B
+  }
