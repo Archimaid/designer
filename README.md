@@ -18,6 +18,8 @@ The text is the only document state. Every gesture is a small edit to the `archi
 - Elements without a position wait in the Unplaced tray until you drag them in.
 - Export SVG, PNG or `.mmd`, share a link, or open the diagram in the playground.
 
+On a phone the canvas fills the screen with a Canvas | Text switch at the top. Tap Add element and then a type to place it in the middle of the view. Tap an element to select it, which opens a short action bar; Details opens its name and description in a full-width sheet. One finger pans, two fingers zoom, and a selected element can be dragged, resized or connected from its larger handles.
+
 Nesting new elements inside containers and moving elements between containers are not built yet; edit the text for those. Long-form relationships keep their type; change it in the text.
 
 ## Development

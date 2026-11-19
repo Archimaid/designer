@@ -43,7 +43,15 @@ const svgNamespace = 'http://www.w3.org/2000/svg';
 
 type Gesture =
   | { readonly kind: 'none' }
-  | { readonly kind: 'pan'; readonly start: Point; readonly pan: Point; moved: boolean }
+  // On touch, a finger on an unselected element pans; lifting it without moving selects the element.
+  | { readonly kind: 'pan'; readonly start: Point; readonly pan: Point; moved: boolean; readonly tap?: string }
+  | {
+      readonly kind: 'pinch';
+      readonly distance: number;
+      readonly scale: number;
+      readonly middle: Point;
+      readonly pan: Point;
+    }
   | { readonly kind: 'press'; readonly id: string; readonly start: Point; readonly box: Box }
   | { readonly kind: 'drag'; readonly id: string; readonly start: Point; readonly box: Box; target: Point }
   | { readonly kind: 'connect'; readonly from: string; readonly origin: Point }
@@ -132,6 +140,7 @@ export class DiagramCanvas {
   private pan: Point = { x: 360, y: 140 };
   private scale = 1;
   private gesture: Gesture = { kind: 'none' };
+  private readonly pointers = new Map<number, Point>();
   private selected: string | null = null;
   private readonly ring = document.createElement('div');
   private readonly ghost = document.createElement('div');
@@ -152,7 +161,10 @@ export class DiagramCanvas {
     root.addEventListener('pointerdown', (event) => this.pointerDown(event));
     root.addEventListener('pointermove', (event) => this.pointerMove(event));
     root.addEventListener('pointerup', (event) => this.pointerUp(event));
-    root.addEventListener('pointercancel', () => this.cancelGesture());
+    root.addEventListener('pointercancel', (event) => {
+      this.pointers.delete(event.pointerId);
+      this.cancelGesture();
+    });
     root.addEventListener('dblclick', (event) => {
       const id = elementId(event.target);
       if (id) events.rename(id);
@@ -272,7 +284,8 @@ export class DiagramCanvas {
     });
     this.overlay.append(this.ring);
     // Edge and corner strips sit under the round connect handles, which win where they overlap.
-    const band = 10;
+    // Fingers need larger targets than a mouse pointer.
+    const band = matchMedia('(pointer: coarse)').matches ? 20 : 10;
     const outer = { x: box.x - inset, y: box.y - inset, width: box.width + 2 * inset, height: box.height + 2 * inset };
     const zones: readonly (readonly [Edge, number, number, number, number])[] = [
       ['n', outer.x, outer.y - band / 2, outer.width, band],
@@ -429,9 +442,48 @@ export class DiagramCanvas {
     this.onZoom(this.scale);
   }
 
+  private startPinch(): void {
+    const [first, second] = [...this.pointers.values()];
+    if (!first || !second) return;
+    this.cancelGesture();
+    this.gesture = {
+      kind: 'pinch',
+      distance: Math.max(1, Math.hypot(first.x - second.x, first.y - second.y)),
+      scale: this.scale,
+      middle: { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 },
+      pan: this.pan,
+    };
+  }
+
+  // Zooms around the pinch's starting midpoint, which follows the fingers as they move.
+  private pinch(gesture: Extract<Gesture, { kind: 'pinch' }>): void {
+    const [first, second] = [...this.pointers.values()];
+    if (!first || !second) return;
+    const rect = this.root.getBoundingClientRect();
+    const middle = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+    const anchor = {
+      x: (gesture.middle.x - rect.left - gesture.pan.x) / gesture.scale,
+      y: (gesture.middle.y - rect.top - gesture.pan.y) / gesture.scale,
+    };
+    const ratio = Math.hypot(first.x - second.x, first.y - second.y) / gesture.distance;
+    this.scale = Math.min(maxZoom, Math.max(minZoom, gesture.scale * ratio));
+    this.pan = {
+      x: middle.x - rect.left - anchor.x * this.scale,
+      y: middle.y - rect.top - anchor.y * this.scale,
+    };
+    this.applyTransform();
+  }
+
   private pointerDown(event: PointerEvent): void {
     if (event.button !== 0 && event.button !== 1) return;
     const client = { x: event.clientX, y: event.clientY };
+    this.pointers.set(event.pointerId, client);
+    this.root.setPointerCapture(event.pointerId);
+    if (this.pointers.size === 2) {
+      this.startPinch();
+      return;
+    }
+    if (this.pointers.size > 2) return;
     const target = event.target instanceof Element ? event.target : null;
     const handle = target?.closest('.handle');
     const end = handle instanceof HTMLElement ? handle.dataset.end : undefined;
@@ -461,7 +513,9 @@ export class DiagramCanvas {
       const id = event.button === 0 ? elementId(target) : undefined;
       const box = id ? this.boxes.get(id) : undefined;
       const relationship = event.button === 0 && !id ? relationshipId(target) : undefined;
-      if (id && box) {
+      if (id && box && event.pointerType === 'touch' && id !== this.selected) {
+        this.gesture = { kind: 'pan', start: client, pan: this.pan, moved: false, tap: id };
+      } else if (id && box) {
         this.events.select(id);
         this.gesture = { kind: 'press', id, start: client, box };
       } else if (relationship) {
@@ -471,13 +525,16 @@ export class DiagramCanvas {
         this.gesture = { kind: 'pan', start: client, pan: this.pan, moved: false };
       }
     }
-    this.root.setPointerCapture(event.pointerId);
   }
 
   private pointerMove(event: PointerEvent): void {
     const gesture = this.gesture;
     const client = { x: event.clientX, y: event.clientY };
+    if (this.pointers.has(event.pointerId)) this.pointers.set(event.pointerId, client);
     switch (gesture.kind) {
+      case 'pinch':
+        this.pinch(gesture);
+        return;
       case 'pan': {
         const dx = client.x - gesture.start.x;
         const dy = client.y - gesture.start.y;
@@ -524,6 +581,7 @@ export class DiagramCanvas {
   }
 
   private pointerUp(event: PointerEvent): void {
+    this.pointers.delete(event.pointerId);
     const gesture = this.gesture;
     this.gesture = { kind: 'none' };
     this.root.classList.remove('is-panning');
@@ -531,7 +589,9 @@ export class DiagramCanvas {
     if (this.root.hasPointerCapture(event.pointerId)) this.root.releasePointerCapture(event.pointerId);
     switch (gesture.kind) {
       case 'pan':
-        if (!gesture.moved) this.events.select(null);
+        if (!gesture.moved) this.events.select(gesture.tap ?? null);
+        return;
+      case 'pinch':
         return;
       case 'drag':
         this.showGhost(null);

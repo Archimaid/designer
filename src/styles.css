@@ -1422,6 +1422,447 @@ textarea.input {
   }
 }
 
+/* Phones: the canvas fills the screen, panels become full-width sheets, and elements are added by tapping. */
+
+.mobile-only,
+.sheet,
+.scrim,
+.phone-text {
+  display: none;
+}
+
+.view-tabs {
+  left: 12px;
+  right: 12px;
+  top: 72px;
+  padding: 3px;
+  border-radius: 999px;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.view-tabs button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.view-tabs button[aria-selected='true'] {
+  background: var(--ink);
+  color: var(--white);
+}
+
+.icon-btn.dark {
+  background: var(--ink);
+  color: var(--white);
+}
+
+.fab {
+  right: 12px;
+  bottom: 24px;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 0 20px 0 16px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--white);
+  font-size: 16px;
+  font-weight: 600;
+  box-shadow: 4px 4px 0 #52b0d9;
+  cursor: pointer;
+}
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  background: rgba(23, 23, 28, 0.28);
+  animation: fade-in 0.2s ease both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.sheet {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px 24px;
+  border-width: 2px 0 0;
+  border-radius: 22px 22px 0 0;
+  box-shadow: 0 -4px 0 var(--ink);
+}
+
+.sheet.is-hidden {
+  transform: translateY(48px);
+}
+
+.grabber {
+  align-self: center;
+  width: 44px;
+  height: 5px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: var(--dots);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sheet-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.sheet-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-muted);
+}
+
+.chips {
+  display: flex;
+  gap: 8px;
+  margin: 0 -16px;
+  padding: 0 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--tile);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chip[aria-selected='true'] {
+  background: var(--ink);
+  color: var(--white);
+}
+
+.sheet-tiles {
+  max-height: 46vh;
+  overflow-y: auto;
+  grid-auto-rows: 52px;
+  gap: 8px;
+}
+
+.sheet-tiles .tile {
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.selection-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 16px;
+}
+
+.selection-head .tile-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+
+.selection-name {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.selection-name span:first-child {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.selection-name span:last-child {
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.selection-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.selection-actions .btn {
+  flex: 1;
+  justify-content: center;
+  min-height: 52px;
+  font-size: 16px;
+}
+
+.selection-actions .icon-btn {
+  width: 52px;
+  height: 52px;
+  border-width: 1.5px;
+}
+
+.icon-btn.danger-icon {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+@media (pointer: coarse) {
+  .handle {
+    width: 22px;
+    height: 22px;
+    margin: -11px 0 0 -11px;
+    border-width: 2.5px;
+  }
+
+  .resize-zone.corner::after {
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+  }
+}
+
+@media (max-width: 760px) {
+  .actions,
+  .palette,
+  .rail,
+  .brand-name,
+  .brand-chip,
+  .divider {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: block;
+  }
+
+  .topbar .icon-btn.mobile-only {
+    display: inline-flex;
+  }
+
+  .view-tabs {
+    display: flex;
+  }
+
+  .fab {
+    display: inline-flex;
+  }
+
+  .scrim:not([hidden]) {
+    display: block;
+  }
+
+  .sheet {
+    display: flex;
+  }
+
+  .topbar {
+    left: 12px;
+    right: 12px;
+    gap: 8px;
+    padding: 6px 6px 6px 12px;
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+
+  .title-input {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+    font-weight: 600;
+  }
+
+  .menu {
+    right: 0;
+    min-width: 220px;
+  }
+
+  .menu button {
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  /* The details and relationship panels become full-width sheets. */
+  .inspector,
+  .inspector.beside-text {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    z-index: 10;
+    width: auto;
+    max-height: 82vh;
+    padding: 18px 16px 24px;
+    border-width: 2px 0 0;
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -4px 0 var(--ink);
+  }
+
+  .inspector.is-hidden {
+    transform: translateY(48px);
+  }
+
+  .inspector .input {
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .drawer {
+    left: 0;
+    right: 0;
+    top: 132px;
+    bottom: 0;
+    width: auto;
+    border-width: 2px 0 0;
+    border-radius: 22px 22px 0 0;
+    box-shadow: none;
+  }
+
+  .drawer.is-hidden {
+    transform: translateY(24px);
+  }
+
+  .drawer-head .ghost-btn {
+    min-height: 40px;
+  }
+
+  .zoom,
+  .zoom.beside-text {
+    left: 12px;
+    right: auto;
+    bottom: 24px;
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+
+  .zoom output {
+    display: none;
+  }
+
+  .zoom button {
+    min-width: 40px;
+    height: 40px;
+  }
+
+  .tray {
+    left: 12px;
+    right: 12px;
+    bottom: 92px;
+    width: auto;
+  }
+
+  .toast {
+    bottom: 92px;
+    max-width: calc(100% - 24px);
+    white-space: normal;
+  }
+
+  .error-chip {
+    top: 128px;
+    max-width: calc(100% - 24px);
+    white-space: normal;
+  }
+
+  /* The relationship picker opens as a sheet with the types in two columns. */
+  .picker {
+    left: 0 !important;
+    right: 0;
+    top: auto !important;
+    bottom: 0;
+    width: auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 16px 16px 24px;
+    border-width: 2px 0 0;
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -4px 0 var(--ink);
+    animation: rise 0.22s var(--ease-out) both;
+  }
+
+  .picker-title {
+    grid-column: 1 / -1;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .picker button {
+    min-height: 48px;
+    background: var(--tile);
+    border-radius: 12px;
+    font-size: 14px;
+  }
+
+  .picker kbd {
+    display: none;
+  }
+
+  body.has-sheet .fab,
+  body.has-sheet .zoom {
+    display: none !important;
+  }
+
+  /* The Text tab covers the canvas, so the canvas's own controls step aside. */
+  body.text-view .fab,
+  body.text-view .zoom,
+  body.text-view .tray,
+  body.text-view .sheet,
+  body.text-view .inspector,
+  body.text-view .toast,
+  #drawer-close,
+  .desktop-text {
+    display: none !important;
+  }
+
+  .phone-text {
+    display: inline;
+  }
+
+  .drawer-head .file {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

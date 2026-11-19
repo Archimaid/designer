@@ -15,7 +15,7 @@ import { DiagramCanvas, gridUnit, layoutPadding, type End, type Point, type Side
 import { paletteType, tileIcon } from './catalogue.ts';
 import { createSourceEditor } from './editor.ts';
 import { downloadBlob, prepareSvg, renderPng } from './export.ts';
-import { buildPalette, makeDraggable, type DragPayload } from './palette.ts';
+import { buildAddSheet, buildPalette, makeDraggable, type DragPayload } from './palette.ts';
 import { closePicker, openPicker } from './picker.ts';
 import { renderDiagram } from './render.ts';
 import { decodeShareHash, encodeShareHash } from './share.ts';
@@ -124,7 +124,40 @@ const ui = {
   toast: byId('toast'),
   toastMessage: byId('toast-message'),
   toastAction: byId<HTMLButtonElement>('toast-action'),
+  mUndo: byId<HTMLButtonElement>('m-undo'),
+  mMore: byId<HTMLButtonElement>('m-more'),
+  moreMenu: byId('more-menu'),
+  tabCanvas: byId<HTMLButtonElement>('tab-canvas'),
+  tabText: byId<HTMLButtonElement>('tab-text'),
+  tabBadge: byId('tab-badge'),
+  addOpen: byId<HTMLButtonElement>('add-open'),
+  addSheet: byId('add-sheet'),
+  addClose: byId<HTMLButtonElement>('add-close'),
+  addSearch: byId<HTMLInputElement>('add-search'),
+  addChips: byId('add-chips'),
+  addTiles: byId('add-tiles'),
+  scrim: byId('scrim'),
+  selectionBar: byId('selection-bar'),
+  barIcon: byId('bar-icon'),
+  barName: byId('bar-name'),
+  barType: byId('bar-type'),
+  barDetails: byId<HTMLButtonElement>('bar-details'),
+  barRename: byId<HTMLButtonElement>('bar-rename'),
+  barDelete: byId<HTMLButtonElement>('bar-delete'),
+  barClose: byId<HTMLButtonElement>('bar-close'),
 };
+
+// Phones get full-width sheets: a selected element shows a short action bar, and its details open on demand.
+const phone = matchMedia('(max-width: 760px)');
+let detailsOpen = false;
+
+function syncSheets(): void {
+  const open = [ui.selectionBar, ui.inspector, ui.relInspector, ui.addSheet].some(
+    (sheet) => !sheet.classList.contains('is-hidden'),
+  );
+  document.body.classList.toggle('has-sheet', phone.matches && open);
+  ui.scrim.hidden = !phone.matches || !(detailsOpen || !ui.addSheet.classList.contains('is-hidden'));
+}
 
 // The source text is the only document state; everything else is derived from it or is view state.
 let source = '';
@@ -311,6 +344,8 @@ function commit(next: string, message?: string): void {
     unseenChanges++;
     ui.textBadge.textContent = String(unseenChanges);
     ui.textBadge.hidden = false;
+    ui.tabBadge.textContent = String(unseenChanges);
+    ui.tabBadge.hidden = false;
   }
   if (message) showToast(message);
   void refresh();
@@ -411,6 +446,7 @@ function rename(id: string, name: string): string {
 // The inspector waits while the inline name field is open, so it never covers the element being named.
 function startRename(id: string): void {
   ui.inspector.classList.add('is-hidden');
+  ui.selectionBar.classList.add('is-hidden');
   canvas.startRename(id, nameOf(id), (name) => commit(rename(id, name), `Saved “${name}” to the text`), showInspector);
 }
 
@@ -445,6 +481,7 @@ function saveInspector(): void {
 function select(id: string | null, save = true): void {
   if (save && id !== selected) saveInspector();
   if (save) saveRelationshipInspector();
+  if (id !== selected) detailsOpen = false;
   selected = id;
   selectedRelationship = null;
   canvas.setSelection(id);
@@ -499,6 +536,7 @@ function showRelationshipInspector(): void {
   const index = selectedRelationship;
   const relationship = index === null ? undefined : model?.relationships[index];
   ui.relInspector.classList.toggle('is-hidden', !relationship);
+  syncSheets();
   if (!relationship || index === null) return;
   const line = readRelationshipLine(source, index);
   const anchor = readAnchor(source, index);
@@ -535,9 +573,25 @@ function glyphOf(relationship: ArchiMateRelationship): string {
   return found?.[0] ?? relationship.type;
 }
 
+function showSelectionBar(element: ArchiMateModel['elements'][number] | undefined): void {
+  ui.selectionBar.classList.toggle('is-hidden', !element || !phone.matches || detailsOpen);
+  if (!element) return;
+  const type = paletteType(element.type);
+  ui.barIcon.className = `tile-icon t-${type?.category ?? 'composite'}`;
+  ui.barIcon.replaceChildren(...(type ? tileIcon(type).childNodes : []));
+  ui.selectionBar
+    .querySelector('.selection-head')
+    ?.setAttribute('class', `selection-head t-${type?.category ?? 'composite'}`);
+  ui.barName.textContent = element.name;
+  ui.barType.textContent = `${type?.name ?? element.type} · ${element.id}`;
+}
+
 function showInspector(): void {
   const element = selected ? model?.elements.find(({ id }) => id === selected) : undefined;
-  ui.inspector.classList.toggle('is-hidden', !element);
+  if (!element) detailsOpen = false;
+  ui.inspector.classList.toggle('is-hidden', !element || (phone.matches && !detailsOpen));
+  showSelectionBar(element);
+  syncSheets();
   if (!element) {
     inspected = null;
     return;
@@ -695,6 +749,10 @@ function updateTray(): void {
 }
 
 function fit(): void {
+  if (phone.matches) {
+    canvas.fit({ left: 16, right: 16, top: 136, bottom: 96 });
+    return;
+  }
   const paletteOpen = !ui.palette.classList.contains('is-hidden');
   canvas.fit({
     left: paletteOpen ? 408 : 100,
@@ -725,6 +783,9 @@ function textAction(): { label: string; run: () => void } | undefined {
 
 function setTextOpen(open: boolean): void {
   textOpen = open;
+  document.body.classList.toggle('text-view', open);
+  ui.tabText.setAttribute('aria-selected', String(open));
+  ui.tabCanvas.setAttribute('aria-selected', String(!open));
   ui.drawer.classList.toggle('is-hidden', !open);
   ui.textToggle.setAttribute('aria-pressed', String(open));
   ui.inspector.classList.toggle('beside-text', open);
@@ -733,6 +794,7 @@ function setTextOpen(open: boolean): void {
   if (open) {
     unseenChanges = 0;
     ui.textBadge.hidden = true;
+    ui.tabBadge.hidden = true;
   }
 }
 
@@ -762,6 +824,12 @@ async function exportAs(kind: string): Promise<void> {
   const svg = prepareSvg(lastSvg, 'transparent');
   if (kind === 'svg') downloadBlob(new Blob([svg.source], { type: 'image/svg+xml' }), `${fileBase()}.svg`);
   else downloadBlob(await renderPng(svg), `${fileBase()}.png`);
+}
+
+function runExport(kind: string): void {
+  exportAs(kind).catch((error: unknown) => {
+    showToast(error instanceof Error ? error.message : 'Export failed.', undefined);
+  });
 }
 
 async function shareLink(): Promise<string> {
@@ -815,7 +883,80 @@ ui.fieldName.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') ui.fieldName.blur();
 });
 ui.fieldDescription.addEventListener('change', saveInspector);
-ui.inspectorClose.addEventListener('click', () => select(null));
+ui.inspectorClose.addEventListener('click', () => {
+  if (!phone.matches) {
+    select(null);
+    return;
+  }
+  // On a phone, closing the details keeps the element selected and returns to its action bar.
+  saveInspector();
+  detailsOpen = false;
+  showInspector();
+});
+ui.barDetails.addEventListener('click', () => {
+  detailsOpen = true;
+  showInspector();
+});
+ui.barRename.addEventListener('click', () => {
+  if (selected) startRename(selected);
+});
+ui.barDelete.addEventListener('click', deleteSelected);
+ui.barClose.addEventListener('click', () => select(null));
+ui.scrim.addEventListener('click', () => {
+  if (detailsOpen) ui.inspectorClose.click();
+  setAddSheet(false);
+});
+ui.tabCanvas.addEventListener('click', () => setTextOpen(false));
+ui.tabText.addEventListener('click', () => setTextOpen(true));
+ui.mUndo.addEventListener('click', undo);
+
+function setAddSheet(open: boolean): void {
+  ui.addSheet.classList.toggle('is-hidden', !open);
+  if (!open) ui.addSearch.value = '';
+  syncSheets();
+}
+ui.addOpen.addEventListener('click', () => {
+  select(null);
+  setAddSheet(true);
+});
+ui.addClose.addEventListener('click', () => setAddSheet(false));
+buildAddSheet({
+  chips: ui.addChips,
+  tiles: ui.addTiles,
+  search: ui.addSearch,
+  pick: (type) => {
+    setAddSheet(false);
+    dropOnCanvas({ kind: 'type', type }, undefined);
+  },
+});
+
+function setMoreMenu(open: boolean): void {
+  ui.moreMenu.classList.toggle('is-hidden', !open);
+  ui.mMore.setAttribute('aria-expanded', String(open));
+}
+ui.mMore.addEventListener('click', () => setMoreMenu(ui.moreMenu.classList.contains('is-hidden')));
+const moreActions: Record<string, () => void> = {
+  auto: () => ui.layoutAuto.click(),
+  custom: () => ui.layoutCustom.click(),
+  redo,
+  share: () => ui.share.click(),
+  svg: () => runExport('svg'),
+  png: () => runExport('png'),
+  mmd: () => runExport('mmd'),
+};
+for (const item of ui.moreMenu.querySelectorAll<HTMLButtonElement>('[data-more]')) {
+  item.addEventListener('click', () => {
+    setMoreMenu(false);
+    moreActions[item.dataset.more ?? '']?.();
+  });
+}
+document.addEventListener('pointerdown', (event) => {
+  if (event.target instanceof Node && !ui.mMore.parentElement?.contains(event.target)) setMoreMenu(false);
+});
+phone.addEventListener('change', () => {
+  detailsOpen = false;
+  showInspector();
+});
 ui.remove.addEventListener('click', deleteSelected);
 ui.relClose.addEventListener('click', () => select(null));
 ui.relDelete.addEventListener('click', deleteRelationship);
@@ -863,9 +1004,7 @@ ui.zoomFit.addEventListener('click', fit);
 ui.exportToggle.addEventListener('click', () => setExportMenu(ui.exportMenu.classList.contains('is-hidden')));
 for (const item of ui.exportMenu.querySelectorAll<HTMLButtonElement>('[data-export]')) {
   item.addEventListener('click', () => {
-    exportAs(item.dataset.export ?? '').catch((error: unknown) => {
-      showToast(error instanceof Error ? error.message : 'Export failed.', undefined);
-    });
+    runExport(item.dataset.export ?? '');
   });
 }
 document.addEventListener('pointerdown', (event) => {

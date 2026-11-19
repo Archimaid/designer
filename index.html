@@ -37,7 +37,109 @@
       <span class="divider"></span>
       <label class="visually-hidden" for="title">Diagram name</label>
       <input class="title-input" id="title" value="Untitled diagram" spellcheck="false" />
+      <button class="icon-btn small mobile-only" type="button" id="m-undo" aria-label="Undo">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9 14 4 9l5-5" />
+          <path d="M4 9h11a5 5 0 0 1 0 10h-3" />
+        </svg>
+      </button>
+      <div class="mobile-only" style="position: relative">
+        <button
+          class="icon-btn small dark"
+          type="button"
+          id="m-more"
+          aria-label="More"
+          aria-expanded="false"
+          aria-controls="more-menu"
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="fill: currentColor; stroke: none">
+            <circle cx="5" cy="12" r="2" />
+            <circle cx="12" cy="12" r="2" />
+            <circle cx="19" cy="12" r="2" />
+          </svg>
+        </button>
+        <div class="menu panel-anim is-hidden" id="more-menu" role="menu">
+          <button type="button" role="menuitem" data-more="auto">Auto layout</button>
+          <button type="button" role="menuitem" data-more="custom">Custom layout</button>
+          <button type="button" role="menuitem" data-more="redo">Redo</button>
+          <button type="button" role="menuitem" data-more="share">Copy share link</button>
+          <button type="button" role="menuitem" data-more="svg">Export SVG</button>
+          <button type="button" role="menuitem" data-more="png">Export PNG</button>
+          <button type="button" role="menuitem" data-more="mmd">Export text (.mmd)</button>
+        </div>
+      </div>
     </header>
+
+    <nav class="float view-tabs mobile-only" role="tablist" aria-label="View">
+      <button type="button" role="tab" id="tab-canvas" aria-selected="true">Canvas</button>
+      <button type="button" role="tab" id="tab-text" aria-selected="false">
+        Text <span class="badge" id="tab-badge" hidden>0</span>
+      </button>
+    </nav>
+
+    <button class="float fab mobile-only" type="button" id="add-open">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width: 2.6">
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+      Add element
+    </button>
+
+    <div class="scrim" id="scrim" hidden></div>
+
+    <section class="float sheet panel-anim is-hidden" id="add-sheet" aria-label="Add element">
+      <span class="grabber" aria-hidden="true"></span>
+      <div class="sheet-head">
+        <h2>Add element</h2>
+        <button class="icon-btn small" type="button" id="add-close" aria-label="Close">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+      <label class="input search">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="width: 16px; stroke: #4a4a5c">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-4-4" />
+        </svg>
+        <span class="visually-hidden">Search element types</span>
+        <input id="add-search" type="search" placeholder="Search 60 types" autocomplete="off" />
+      </label>
+      <div class="chips" id="add-chips" role="tablist" aria-label="Layer"></div>
+      <div class="tiles sheet-tiles" id="add-tiles"></div>
+      <p class="sheet-hint">Tap a type to place it in the middle of the view. You name it straight away.</p>
+    </section>
+
+    <section class="float sheet selection-bar panel-anim is-hidden" id="selection-bar" aria-label="Selected element">
+      <div class="selection-head">
+        <span class="tile-icon" id="bar-icon"></span>
+        <div class="selection-name">
+          <span id="bar-name"></span>
+          <span id="bar-type"></span>
+        </div>
+      </div>
+      <div class="selection-actions">
+        <button class="btn btn-dark" type="button" id="bar-details">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
+          Details
+        </button>
+        <button class="icon-btn" type="button" id="bar-rename" aria-label="Rename">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l11-11-4-4L4 16z" /></svg>
+        </button>
+        <button class="icon-btn danger-icon" type="button" id="bar-delete" aria-label="Delete">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+          </svg>
+        </button>
+        <button class="icon-btn" type="button" id="bar-close" aria-label="Deselect">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+      <p class="sheet-hint">
+        Drag the element to move it. Drag a round handle to another element to connect, or a corner to resize.
+      </p>
+    </section>
 
     <div class="float actions appear d1">
       <div class="segmented" role="group" aria-label="Layout">
@@ -187,8 +289,8 @@
         <span class="file" id="file-name">diagram.mmd</span>
         <div class="drawer-actions">
           <button class="ghost-btn" type="button" id="copy-text">Copy</button>
-          <a class="ghost-btn" id="open-playground" href="https://try.archimaid.org" target="_blank" rel="noopener"
-            >Open in playground</a
+          <a class="ghost-btn" id="open-playground" href="https://try.archimaid.org" target="_blank" rel="noopener">
+            <span class="desktop-text">Open in playground</span><span class="phone-text">Playground</span></a
           >
           <button class="ghost-btn round" type="button" id="drawer-close" aria-label="Close text">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>

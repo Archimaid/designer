@@ -149,3 +149,53 @@ export function buildPalette(options: PaletteOptions, target: DropTarget): void 
     rail.append(item);
   }
 }
+
+export interface AddSheetOptions {
+  readonly chips: HTMLElement;
+  readonly tiles: HTMLElement;
+  readonly search: HTMLInputElement;
+  readonly pick: (type: PaletteType) => void;
+}
+
+// On phones a type is tapped, not dragged: layer chips choose the group, and search spans every layer.
+export function buildAddSheet({ chips, tiles, search, pick }: AddSheetOptions): void {
+  let category = paletteGroups[0]?.category;
+  const render = () => {
+    const query = search.value.trim().toLowerCase();
+    chips.replaceChildren(
+      ...paletteGroups.map((group) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = `chip t-${group.category}`;
+        chip.setAttribute('role', 'tab');
+        const active = !query && group.category === category;
+        chip.setAttribute('aria-selected', String(active));
+        const first = group.types[0];
+        if (first) chip.append(tileIcon(first, true));
+        chip.append(group.name);
+        chip.addEventListener('click', () => {
+          category = group.category;
+          search.value = '';
+          render();
+        });
+        return chip;
+      }),
+    );
+    const types = query
+      ? paletteGroups.flatMap((group) => group.types).filter((type) => type.name.toLowerCase().includes(query))
+      : (paletteGroups.find((group) => group.category === category)?.types ?? []);
+    tiles.replaceChildren(
+      ...types.map((type) => {
+        const tile = document.createElement('button');
+        tile.type = 'button';
+        tile.className = `tile t-${type.category}`;
+        tile.setAttribute('aria-label', `Add ${type.name}`);
+        tile.append(tileIcon(type), query ? type.name : type.label);
+        tile.addEventListener('click', () => pick(type));
+        return tile;
+      }),
+    );
+  };
+  search.addEventListener('input', render);
+  render();
+}
