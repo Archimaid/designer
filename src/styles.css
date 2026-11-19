@@ -134,6 +134,16 @@ kbd,
   background-image: radial-gradient(circle at 1px 1px, var(--dots) 1.2px, transparent 1.3px);
 }
 
+.canvas.is-easing {
+  transition:
+    background-position 0.32s var(--ease-out),
+    background-size 0.32s var(--ease-out);
+}
+
+.canvas.is-easing .stage {
+  transition: transform 0.32s var(--ease-out);
+}
+
 .canvas.is-panning {
   cursor: grabbing;
 }
@@ -206,6 +216,41 @@ kbd,
   border: 2px solid var(--focus);
   border-radius: 12px;
   animation: ring-in 0.18s ease both;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 280px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--white);
+  font: 500 12px/1.35 var(--font-sans);
+  pointer-events: none;
+  animation: tooltip-in 0.12s ease both;
+}
+
+.tooltip[hidden] {
+  display: none;
+}
+
+.tooltip kbd {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  font: 11px var(--font-mono);
+  color: var(--code-muted);
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+  }
 }
 
 .canvas.is-hand,
@@ -285,6 +330,12 @@ kbd,
   left: 0;
   top: 0;
   overflow: visible;
+}
+
+.rename.rename-note {
+  padding: 8px 10px;
+  line-height: 1.35;
+  resize: none;
 }
 
 .rename {
@@ -373,18 +424,20 @@ kbd,
 }
 
 .drawer.is-hidden {
-  transform: translateX(40px);
+  transform: translateX(-24px) scale(0.98);
 }
 
+/* Bars are pills and panels are cards. Every bar holds 40px controls in 6px of padding, so the header, the
+   actions, the bottom bar and the collapsed palette share one thickness, one border and one shadow. */
 .topbar {
   /* Above the other floating panels, so its menu opens over the Canvas/Text tabs on phones. */
   z-index: 6;
   left: 24px;
-  top: 20px;
+  top: 24px;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 16px 8px 10px;
+  padding: 6px 6px 6px 14px;
   border-radius: 999px;
 }
 
@@ -417,7 +470,7 @@ kbd,
 
 .title-input {
   width: 15ch;
-  min-height: 34px;
+  min-height: 40px;
   padding: 0 8px;
   border: 1.5px solid transparent;
   border-radius: 8px;
@@ -436,9 +489,32 @@ kbd,
   background: var(--white);
 }
 
+/* The diagram's own menu opens under the name, so it hangs to the right of its button. */
+.examples .menu {
+  left: 0;
+  right: auto;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  transform-origin: left top;
+}
+
+#example-items {
+  display: contents;
+}
+
+.menu-label {
+  margin: 6px 12px 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+  color: var(--ink-muted);
+  font: 600 11px var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .actions {
   right: 24px;
-  top: 20px;
+  top: 24px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -550,13 +626,19 @@ kbd,
   text-align: center;
 }
 
+.menu-anchor {
+  position: relative;
+}
+
+/* Every dropdown is the same small card: one item height, one padding and one radius. */
 .menu {
   position: absolute;
   right: 0;
   top: calc(100% + 8px);
   display: flex;
   flex-direction: column;
-  min-width: 180px;
+  gap: 2px;
+  min-width: 240px;
   padding: 6px;
   background: var(--white);
   border: 2px solid var(--ink);
@@ -566,15 +648,23 @@ kbd,
 }
 
 .menu button {
-  min-height: 36px;
-  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   background: transparent;
   text-align: left;
-  font-size: 14px;
-  font-weight: 500;
+  font: 500 14px/1.3 var(--font-sans);
+  color: var(--ink);
   cursor: pointer;
+}
+
+.menu .icon {
+  width: 16px;
+  height: 16px;
 }
 
 .menu button:hover {
@@ -832,12 +922,16 @@ kbd,
 
 .rail {
   left: 24px;
-  top: 92px;
+  top: 0;
+  bottom: 0;
+  height: max-content;
+  margin: auto 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 10px;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 999px;
 }
 
 .rail-item {
@@ -848,10 +942,10 @@ kbd,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 999px;
   background: var(--tile);
   cursor: pointer;
   transition:
@@ -874,7 +968,7 @@ kbd,
 
 .popout {
   position: absolute;
-  left: 76px;
+  left: 60px;
   top: -12px;
   width: 316px;
   display: flex;
@@ -899,10 +993,10 @@ kbd,
 .popout::before {
   content: '';
   position: absolute;
-  left: -36px;
+  left: -24px;
   top: 0;
   bottom: 0;
-  width: 36px;
+  width: 24px;
 }
 
 .popout-title {
@@ -965,10 +1059,6 @@ body.is-dragging-type .popout {
   overflow-y: auto;
 }
 
-.inspector.beside-text {
-  right: 500px;
-}
-
 .inspector-head {
   display: flex;
   align-items: center;
@@ -1004,10 +1094,6 @@ body.is-dragging-type .popout {
   background: #f3e3ec;
   color: #b0306a;
   font: 600 13px var(--font-mono);
-}
-
-.inspector.beside-text {
-  right: 500px;
 }
 
 .field {
@@ -1116,11 +1202,12 @@ textarea.input {
 
 /* Text drawer */
 
+/* The text panel docks where the palette is; desktops show it in Code mode only. */
 .drawer {
-  right: 24px;
+  left: 24px;
   top: 92px;
   bottom: 24px;
-  width: 460px;
+  width: var(--code-width, 520px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1137,7 +1224,90 @@ textarea.input {
 }
 
 .drawer-head .file {
-  font: 13px var(--font-mono);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  font: 400 13px/1.3 var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--syntax-operator);
+}
+
+.status-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font: 600 12px/1 var(--font-mono);
+}
+
+.status-chip:empty {
+  display: none;
+}
+
+.status-chip::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-chip[data-status='valid'] {
+  background: rgba(180, 236, 132, 0.14);
+  color: var(--code-valid);
+}
+
+.status-chip[data-status='warning'] {
+  background: rgba(245, 208, 138, 0.15);
+  color: var(--code-warning);
+}
+
+.status-chip[data-status='invalid'] {
+  background: rgba(255, 138, 138, 0.16);
+  color: var(--code-error);
+}
+
+.drawer-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--code-line);
+}
+
+.segmented-dark {
+  padding: 3px;
+  border: 1px solid #34343f;
+  background: var(--code-raised);
+}
+
+.segmented-dark button {
+  min-height: 28px;
+  color: var(--code-muted);
+}
+
+.segmented-dark button[aria-pressed='true'] {
+  background: var(--code-ink);
+  color: var(--code-bg);
+}
+
+.segmented button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .drawer-actions {
@@ -1216,30 +1386,155 @@ textarea.input {
   box-shadow: inset 3px 0 0 var(--syntax-keyword);
 }
 
-.status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  padding: 10px 16px;
+.problems {
+  max-height: 34%;
+  overflow: auto;
+  padding: 10px 12px 12px;
   border-top: 1px solid var(--code-line);
-  font-size: 13px;
+  background: #1a1a24;
 }
 
-.status .ok {
-  color: var(--code-valid);
+.problems-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 8px 4px;
+  color: var(--code-muted);
+  font: 600 12px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-.status .warning {
+.count-badge {
+  display: inline-block;
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #ff8a8a;
+  color: var(--code-bg);
+  font: 600 11px/1.2 var(--font-mono);
+  text-align: center;
+  letter-spacing: 0;
+}
+
+.problems ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.problem {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 138, 138, 0.35);
+  border-radius: 12px;
+  background: rgba(255, 138, 138, 0.1);
+  color: var(--code-ink);
+  font: 14px/1.5 var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.problem:hover {
+  background: rgba(255, 138, 138, 0.18);
+}
+
+.problem.is-warning {
+  border-color: rgba(245, 208, 138, 0.35);
+  background: rgba(245, 208, 138, 0.1);
+}
+
+.problem-position {
+  flex: none;
+  min-width: 40px;
+  font: 600 12px/1.6 var(--font-mono);
+  color: var(--code-error);
+}
+
+.problem.is-warning .problem-position {
   color: var(--code-warning);
 }
 
-.status .error {
-  color: var(--code-error);
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 38px;
+  padding: 0 16px;
+  border-top: 1px solid var(--code-line);
+  color: var(--code-faint);
+  font: 12px/1 var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.status-bar-end {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Code mode docks the text panel where the palette was; its right edge resizes it. */
+
+.drawer-resize {
+  display: none;
+}
+
+@media (min-width: 761px) {
+  /* The phone header keeps its compact buttons; on desktop the chevron matches the other bar controls. */
+  .examples .icon-btn.small {
+    width: 40px;
+    height: 40px;
+    border-width: 2px;
+  }
+
+  /* Phones open the text from their Text tab in either mode; a wider window shows it in Code mode only.
+     Panels fade and slide rather than vanish, so switching modes crossfades the palette and the text. */
+  body:not(.code-mode) .drawer,
+  body.code-mode .palette,
+  body.code-mode .rail {
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+    transform: translateX(-24px) scale(0.98);
+    transition:
+      opacity 0.16s ease,
+      transform 0.2s ease,
+      visibility 0s linear 0.2s;
+  }
+
+  body.code-mode .tray {
+    left: calc(var(--code-width, 520px) + 48px);
+  }
+
+  body.code-mode .drawer-resize {
+    display: block;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 10px;
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  body.code-mode .drawer-resize:hover,
+  body.code-mode .drawer-resize:focus-visible,
+  body.code-mode .drawer-resize.is-dragging {
+    outline: none;
+    box-shadow: inset -3px 0 0 var(--focus);
+  }
 }
 
 /* Canvas furniture */
 
 .tray {
+  transition: left 0.26s var(--ease-out);
   left: 24px;
   bottom: 24px;
   width: 360px;
@@ -1263,24 +1558,23 @@ textarea.input {
   background: var(--white);
 }
 
+/* The bar centres itself with margins, because the entrance animation owns the transform. */
 .zoom {
-  right: 24px;
+  left: 0;
+  right: 0;
+  width: max-content;
+  margin: 0 auto;
   bottom: 24px;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 3px;
+  gap: 4px;
+  padding: 6px;
   border-radius: 999px;
-  box-shadow: 4px 4px 0 var(--ink);
-}
-
-.zoom.beside-text {
-  right: 500px;
 }
 
 .zoom button {
-  min-width: 34px;
-  height: 34px;
+  min-width: 40px;
+  height: 40px;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -1291,13 +1585,58 @@ textarea.input {
 
 .zoom button.fit {
   padding: 0 12px;
-  border-left: 1.5px solid var(--hairline);
-  border-radius: 0 999px 999px 0;
   font-size: 13px;
   font-weight: 500;
 }
 
-.zoom .tools {
+.zoom .modes {
+  position: relative;
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 2px;
+  padding-left: 4px;
+  border-left: 1.5px solid var(--hairline);
+}
+
+/* One pill slides between the modes; main.ts sets its place and width from the pressed button. */
+.zoom .modes::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--pill-width, 0);
+  border-radius: 999px;
+  background: var(--ink);
+  transform: translateX(var(--pill-x, 0));
+}
+
+.zoom .modes.is-ready::before {
+  transition:
+    transform 0.28s var(--ease-out),
+    width 0.28s var(--ease-out);
+}
+
+.zoom .modes button {
+  position: relative;
+  transition: color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+
+.zoom .modes button[aria-pressed='true'] {
+  background: transparent;
+  color: var(--white);
+  font-weight: 600;
+}
+
+.zoom .tools,
+.zoom .layouts {
   display: inline-flex;
   gap: 2px;
   margin-right: 2px;
@@ -1305,13 +1644,15 @@ textarea.input {
   border-right: 1.5px solid var(--hairline);
 }
 
-.zoom .tools button {
+.zoom .tools button,
+.zoom .layouts button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
-.zoom .tools button[aria-pressed='true'] {
+.zoom .tools button[aria-pressed='true'],
+.zoom .layouts button[aria-pressed='true'] {
   background: var(--ink);
   color: var(--white);
 }
@@ -1324,7 +1665,7 @@ textarea.input {
 
 .toast {
   left: 50%;
-  bottom: 28px;
+  bottom: 88px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1829,6 +2170,22 @@ textarea.input {
     font-weight: 600;
   }
 
+  /* Both header menus open under the name pill at its full width, so they look and sit alike. */
+  .title-pill {
+    position: relative;
+  }
+
+  .title-pill .menu-anchor {
+    position: static;
+  }
+
+  .title-pill .menu {
+    left: 0;
+    right: 0;
+    min-width: 0;
+    transform-origin: center top;
+  }
+
   .menu {
     right: 0;
     min-width: 220px;
@@ -1840,8 +2197,7 @@ textarea.input {
   }
 
   /* The details and relationship panels become full-width sheets. */
-  .inspector,
-  .inspector.beside-text {
+  .inspector {
     left: 0;
     right: 0;
     top: auto;
@@ -1883,12 +2239,18 @@ textarea.input {
     min-height: 40px;
   }
 
-  .zoom,
-  .zoom.beside-text {
+  .zoom {
     left: 12px;
     right: auto;
+    margin: 0;
     bottom: 24px;
     box-shadow: 4px 4px 0 var(--ink);
+  }
+
+  /* The Canvas and Text tabs are the phone's modes, and layout sits in the More menu, beside Add element. */
+  .zoom .modes,
+  .zoom .layouts {
+    display: none;
   }
 
   /* Pinching zooms on a phone, which leaves room for the tools beside the Add element button. */
@@ -1980,8 +2342,7 @@ textarea.input {
   body.text-view .tray,
   body.text-view .sheet,
   body.text-view .inspector,
-  body.text-view .toast,
-  #drawer-close {
+  body.text-view .toast {
     display: none !important;
   }
 

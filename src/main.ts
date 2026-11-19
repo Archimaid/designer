@@ -21,16 +21,20 @@ import {
   type Snapped,
   type Tool,
 } from './canvas.ts';
-import { paletteType, tileIcon } from './catalogue.ts';
+import { notePaletteType, paletteType, tileIcon } from './catalogue.ts';
 import { createSourceEditor } from './editor.ts';
+import { blankSource, blankTitle, examples, starterExample } from './examples.ts';
+import { convertNotation, detectNotation, type Notation } from './notation.ts';
 import { copyText } from './clipboard.ts';
 import { downloadBlob, prepareSvg, renderPng } from './export.ts';
 import { buildAddSheet, buildPalette, makeDraggable, type DragPayload } from './palette.ts';
 import { closePicker, openPicker } from './picker.ts';
 import { renderDiagram } from './render.ts';
+import { installTooltips } from './tooltip.ts';
 import { decodeShareHash, encodeShareHash } from './share.ts';
 import {
   addElement,
+  addNote,
   addRelationship,
   clearDiagram,
   countRelationshipLines,
@@ -50,6 +54,7 @@ import {
   renameId,
   setDescription,
   setLayout,
+  setNoteText,
   setPosition,
   setPositions,
   setSize,
@@ -58,10 +63,11 @@ import {
   type GridPoint,
   type GridSize,
 } from './source.ts';
-import starterSource from './starter.mmd?raw';
 import { readStored, writeStored } from './storage.ts';
 
 const sourceKey = 'archimaid.designer.source';
+const modeKey = 'archimaid.designer.mode';
+const codeWidthKey = 'archimaid.designer.code-width';
 const titleKey = 'archimaid.designer.title';
 const collapsedKey = 'archimaid.designer.palette-collapsed';
 const groupsKey = 'archimaid.designer.open-groups';
@@ -80,6 +86,10 @@ const ui = {
   stage: byId('stage'),
   overlay: byId('overlay'),
   title: byId<HTMLInputElement>('title'),
+  examplesToggle: byId<HTMLButtonElement>('examples-toggle'),
+  examplesMenu: byId('examples-menu'),
+  exampleItems: byId('example-items'),
+  newDiagram: byId<HTMLButtonElement>('new-diagram'),
   layoutAuto: byId<HTMLButtonElement>('layout-auto'),
   layoutCustom: byId<HTMLButtonElement>('layout-custom'),
   undo: byId<HTMLButtonElement>('undo'),
@@ -88,8 +98,6 @@ const ui = {
   mClear: byId<HTMLButtonElement>('m-clear'),
   toolSelect: byId<HTMLButtonElement>('tool-select'),
   toolHand: byId<HTMLButtonElement>('tool-hand'),
-  textToggle: byId<HTMLButtonElement>('text-toggle'),
-  textBadge: byId('text-badge'),
   exportToggle: byId<HTMLButtonElement>('export-toggle'),
   exportMenu: byId('export-menu'),
   share: byId<HTMLButtonElement>('share'),
@@ -124,9 +132,21 @@ const ui = {
   drawer: byId('drawer'),
   fileName: byId('file-name'),
   editor: byId('editor'),
-  status: byId('status'),
+  statusChip: byId('status-chip'),
+  notationLong: byId<HTMLButtonElement>('notation-long'),
+  notationShorthand: byId<HTMLButtonElement>('notation-shorthand'),
+  problems: byId('problems'),
+  problemsCount: byId('problems-count'),
+  problemsList: byId('problems-list'),
+  cursorPosition: byId('cursor-position'),
+  modelSummary: byId('model-summary'),
+  storageState: byId('storage-state'),
+  drawerResize: byId('drawer-resize'),
+  modeDesign: byId<HTMLButtonElement>('mode-design'),
+  modes: byId('modes'),
+  modeCode: byId<HTMLButtonElement>('mode-code'),
+  codeBadge: byId('code-badge'),
   copyText: byId<HTMLButtonElement>('copy-text'),
-  drawerClose: byId<HTMLButtonElement>('drawer-close'),
   tray: byId('tray'),
   zoomOut: byId<HTMLButtonElement>('zoom-out'),
   zoomIn: byId<HTMLButtonElement>('zoom-in'),
@@ -259,6 +279,9 @@ const editor = createSourceEditor(ui.editor, {
     persist();
     scheduleRefresh(textEditDelayMs);
   },
+  onCursorMove: ({ line, column }) => {
+    ui.cursorPosition.textContent = `Ln ${line}, Col ${column}`;
+  },
 });
 
 // Model lookups
@@ -268,7 +291,15 @@ function parents(): Map<string, string> {
 }
 
 function nameOf(id: string): string {
-  return model?.elements.find((element) => element.id === id)?.name ?? id;
+  return (
+    model?.elements.find((element) => element.id === id)?.name ??
+    model?.notes?.find((note) => note.id === id)?.text ??
+    id
+  );
+}
+
+function isNote(id: string): boolean {
+  return model?.notes?.some((note) => note.id === id) ?? false;
 }
 
 function positionOf(id: string) {
@@ -381,8 +412,8 @@ function commit(next: string, message?: string): void {
   editor.markChanged(changedLineNumbers(before, next));
   if (!textOpen) {
     unseenChanges++;
-    ui.textBadge.textContent = String(unseenChanges);
-    ui.textBadge.hidden = false;
+    ui.codeBadge.textContent = String(unseenChanges);
+    ui.codeBadge.hidden = false;
     ui.tabBadge.textContent = String(unseenChanges);
     ui.tabBadge.hidden = false;
   }
@@ -412,7 +443,15 @@ function redo(): void {
 }
 
 function persist(): void {
-  writeStored(sourceKey, source);
+  showStorageState(writeStored(sourceKey, source) ? 'saved' : 'blocked');
+}
+
+function showStorageState(state: 'saved' | 'blocked' | 'shared'): void {
+  ui.storageState.textContent = {
+    saved: 'Saved in this browser',
+    blocked: 'Not saved: browser storage is blocked',
+    shared: 'Opened from a share link',
+  }[state];
 }
 
 function gridSize(box: { width: number; height: number }): GridSize {
@@ -497,7 +536,10 @@ function dropOnCanvas(payload: DragPayload, client: Point | undefined): void {
     x: Math.round((topLeft.x - layoutPadding) / gridUnit),
     y: Math.round((topLeft.y - layoutPadding) / gridUnit),
   };
-  const added = addElement(source, { type: type.key, id, name: type.label });
+  const added =
+    type === notePaletteType
+      ? addNote(source, id, type.label)
+      : addElement(source, { type: type.key, id, name: type.label });
   const next = custom ? placeAt(added, id, raw).text : added;
   afterRender.push(() => {
     select(id);
@@ -508,6 +550,7 @@ function dropOnCanvas(payload: DragPayload, client: Point | undefined): void {
 
 // The ID follows the name until someone gives it a name of its own.
 function rename(id: string, name: string): string {
+  if (isNote(id)) return setNoteText(source, id, name);
   const oldName = nameOf(id);
   let next = renameElement(source, id, name);
   const taken = usedWords(source);
@@ -533,7 +576,8 @@ function deleteSelected(): void {
   const ids = selection();
   const [first] = ids;
   if (first === undefined) return;
-  const message = ids.length === 1 ? `Deleted ${nameOf(first)}` : `Deleted ${ids.length} elements`;
+  const one = isNote(first) ? 'the note' : nameOf(first);
+  const message = ids.length === 1 ? `Deleted ${one}` : `Deleted ${ids.length} items`;
   select(null, false);
   commit(
     ids.reduce((text, id) => removeElement(text, id), source),
@@ -663,7 +707,7 @@ function showRelationshipInspector(): void {
   ui.relTo.textContent = nameOf(relationship.target) + (anchor.to ? ` · ${sideNames[anchor.to]}` : '');
   if (document.activeElement !== ui.relLabel) ui.relLabel.value = relationship.label ?? '';
   ui.relRetype.disabled = line?.kind !== 'shorthand';
-  ui.relRetype.title = ui.relRetype.disabled ? 'Change the type of a long-form relationship in the text.' : '';
+  ui.relRetype.dataset.tip = ui.relRetype.disabled ? 'Change the type of a long-form relationship in the text.' : '';
 }
 
 function deleteRelationship(): void {
@@ -809,31 +853,83 @@ async function refresh(): Promise<void> {
   for (const action of afterRender.splice(0)) action();
 }
 
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
 function showStatus(): void {
-  const errors = diagnostics.filter(({ severity }) => severity === 'error');
-  const warnings = diagnostics.filter(({ severity }) => severity === 'warning');
+  const errors = diagnostics.filter(({ severity }) => severity === 'error').length;
+  const warnings = diagnostics.length - errors;
   editor.showDiagnostics(diagnostics);
-  ui.status.replaceChildren();
-  const add = (className: string, text: string, diagnostic?: ArchiMateDiagnostic) => {
-    const item = document.createElement(diagnostic ? 'button' : 'span');
-    item.className = className;
-    item.textContent = text;
-    if (diagnostic && item instanceof HTMLButtonElement) {
-      item.type = 'button';
-      Object.assign(item.style, { border: '0', background: 'none', padding: '0', cursor: 'pointer', font: 'inherit' });
-      item.addEventListener('click', () => editor.revealDiagnostic(diagnostic));
-    }
-    ui.status.append(item);
-  };
-  if (!errors.length) add('ok', '● Checks passed');
-  for (const diagnostic of [...errors, ...warnings].slice(0, 3)) {
-    add(
-      diagnostic.severity === 'error' ? 'error' : 'warning',
-      `● Line ${diagnostic.line}: ${diagnostic.message}`,
-      diagnostic,
-    );
+  ui.statusChip.textContent = errors ? plural(errors, 'error') : warnings ? plural(warnings, 'warning') : 'Valid';
+  ui.statusChip.dataset.status = errors ? 'invalid' : warnings ? 'warning' : 'valid';
+  ui.modelSummary.textContent = model
+    ? `${plural(model.elements.length, 'element')} · ${plural(model.relationships.length, 'relationship')}`
+    : '';
+  showProblems();
+  showNotation(errors === 0);
+}
+
+function showProblems(): void {
+  ui.problems.hidden = diagnostics.length === 0;
+  ui.problemsCount.textContent = String(diagnostics.length);
+  ui.problemsList.replaceChildren(
+    ...diagnostics.map((diagnostic) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `problem is-${diagnostic.severity}`;
+      const position = document.createElement('span');
+      position.className = 'problem-position';
+      position.textContent = `${diagnostic.line}:${diagnostic.column}`;
+      const message = document.createElement('span');
+      message.textContent = diagnostic.message;
+      button.append(position, message);
+      button.addEventListener('click', () => editor.revealDiagnostic(diagnostic));
+      const item = document.createElement('li');
+      item.append(button);
+      return item;
+    }),
+  );
+}
+
+const notationTips = new Map(
+  [ui.notationLong, ui.notationShorthand].map((button) => [button, button.dataset.tip ?? ''] as const),
+);
+
+// The pressed button shows what the text is written in, which a hand edit can change; mixed presses neither.
+function showNotation(valid: boolean): void {
+  const written = detectNotation(source);
+  for (const [button, notation] of [
+    [ui.notationLong, 'long'],
+    [ui.notationShorthand, 'shorthand'],
+  ] as const) {
+    button.setAttribute('aria-pressed', String(written === notation));
+    button.disabled = !valid;
+    button.dataset.tip = valid
+      ? (notationTips.get(button) ?? '')
+      : 'Fix the errors first; only a valid diagram can be rewritten.';
   }
-  if (errors.length + warnings.length > 3) add('warning', `+${errors.length + warnings.length - 3} more`);
+}
+
+function selectNotation(notation: Notation): void {
+  const name = notation === 'long' ? 'long form' : 'shorthand';
+  const keptNote = (kept: number): string =>
+    kept > 0 ? ` ${plural(kept, 'relationship')} stay in long form because other lines refer to their IDs.` : '';
+  const result = convertNotation(source, notation);
+  switch (result.kind) {
+    case 'converted':
+      commit(result.source, `Rewrote ${plural(result.converted, 'relationship')} in ${name}.${keptNote(result.kept)}`);
+      return;
+    case 'unchanged':
+      showToast(`The relationships are already in ${name}.${keptNote(result.kept)}`, undefined);
+      return;
+    case 'invalid':
+      showToast('Fix the errors first; only a valid diagram can be rewritten.', undefined);
+      return;
+    case 'failed':
+      showToast('This diagram could not be rewritten without changing it, so it was left as it is.', undefined);
+      return;
+  }
 }
 
 function updateChrome(): void {
@@ -863,7 +959,7 @@ function updateTray(): void {
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.className = `tile t-${type?.category ?? 'composite'}`;
-    chip.title = 'Drag onto the canvas to place it';
+    chip.dataset.tip = 'Drag onto the canvas to place it';
     if (type) chip.append(tileIcon(type, true));
     chip.append(element.name);
     makeDraggable(chip, () => ({ kind: 'place', id: element.id }), { drop: dropOnCanvas });
@@ -871,18 +967,22 @@ function updateTray(): void {
   }
 }
 
-function fit(): void {
+function fit(animate = false): void {
   if (phone.matches) {
-    canvas.fit({ left: 16, right: 16, top: 152, bottom: 96 });
+    canvas.fit({ left: 16, right: 16, top: 152, bottom: 96 }, animate);
     return;
   }
   const paletteOpen = !ui.palette.classList.contains('is-hidden');
-  canvas.fit({
-    left: paletteOpen ? 408 : 100,
-    right: textOpen ? 500 : selected || selectedRelationship !== null ? 340 : 40,
-    top: 96,
-    bottom: 80,
-  });
+  const inspectorOpen = selected !== null || selectedRelationship !== null;
+  canvas.fit(
+    {
+      left: mode === 'code' ? codeWidth + 48 : paletteOpen ? 408 : 100,
+      right: inspectorOpen ? 340 : 40,
+      top: 96,
+      bottom: 80,
+    },
+    animate,
+  );
 }
 
 // Panels and toasts
@@ -901,7 +1001,7 @@ function showToast(message: string, action: { label: string; run: () => void } |
 }
 
 function textAction(): { label: string; run: () => void } | undefined {
-  return textOpen ? undefined : { label: 'Show text', run: () => setTextOpen(true) };
+  return textOpen ? undefined : { label: 'Show code', run: () => switchMode('code') };
 }
 
 function setTextOpen(open: boolean): void {
@@ -910,13 +1010,9 @@ function setTextOpen(open: boolean): void {
   ui.tabText.setAttribute('aria-selected', String(open));
   ui.tabCanvas.setAttribute('aria-selected', String(!open));
   ui.drawer.classList.toggle('is-hidden', !open);
-  ui.textToggle.setAttribute('aria-pressed', String(open));
-  ui.inspector.classList.toggle('beside-text', open);
-  ui.relInspector.classList.toggle('beside-text', open);
-  document.querySelector('.zoom')?.classList.toggle('beside-text', open);
   if (open) {
     unseenChanges = 0;
-    ui.textBadge.hidden = true;
+    ui.codeBadge.hidden = true;
     ui.tabBadge.hidden = true;
   }
 }
@@ -1004,6 +1100,7 @@ document.addEventListener('keydown', (event) => {
     canvas.cancel();
     closePicker();
     setExportMenu(false);
+    setExamplesMenu(false);
     select(null);
   }
 });
@@ -1114,10 +1211,8 @@ ui.layoutCustom.addEventListener('click', () => {
 });
 ui.undo.addEventListener('click', undo);
 ui.redo.addEventListener('click', redo);
-ui.textToggle.addEventListener('click', () => setTextOpen(!textOpen));
-ui.drawerClose.addEventListener('click', () => setTextOpen(false));
 ui.errorOpen.addEventListener('click', () => {
-  setTextOpen(true);
+  switchMode('code');
   const first = diagnostics.find(({ severity }) => severity === 'error');
   if (first) editor.revealDiagnostic(first);
 });
@@ -1129,7 +1224,7 @@ ui.collapse.addEventListener('click', () => setCollapsed(true));
 ui.expand.addEventListener('click', () => setCollapsed(false));
 ui.zoomIn.addEventListener('click', () => canvas.zoomBy(1.2));
 ui.zoomOut.addEventListener('click', () => canvas.zoomBy(1 / 1.2));
-ui.zoomFit.addEventListener('click', fit);
+ui.zoomFit.addEventListener('click', () => fit(true));
 
 ui.exportToggle.addEventListener('click', () => setExportMenu(ui.exportMenu.classList.contains('is-hidden')));
 for (const item of ui.exportMenu.querySelectorAll<HTMLButtonElement>('[data-export]')) {
@@ -1162,9 +1257,56 @@ ui.copyText.addEventListener('click', async () => {
   }, 1800);
 });
 
-ui.title.addEventListener('change', () => {
-  writeStored(titleKey, ui.title.value);
+function setTitle(title: string): void {
+  ui.title.value = title;
+  writeStored(titleKey, title);
   ui.fileName.textContent = `${fileBase()}.mmd`;
+}
+
+ui.title.addEventListener('change', () => setTitle(ui.title.value));
+
+function setExamplesMenu(open: boolean): void {
+  ui.examplesMenu.classList.toggle('is-hidden', !open);
+  ui.examplesToggle.setAttribute('aria-expanded', String(open));
+}
+
+// Opening replaces the whole diagram in one undo step. The notification's Undo also brings the old name back,
+// as long as nothing was edited since.
+function openDiagram(next: string, title: string, message: string): void {
+  setExamplesMenu(false);
+  const previous = { source, title: ui.title.value };
+  if (next === previous.source && title === previous.title) return;
+  pushHistory();
+  select(null, false);
+  setTitle(title);
+  // A share link in the address would otherwise reopen the shared diagram on the next visit.
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  afterRender.push(() => fit(true));
+  replaceAll(next);
+  showToast(message, {
+    label: 'Undo',
+    run: () => {
+      if (source !== next) return;
+      undo();
+      setTitle(previous.title);
+    },
+  });
+}
+
+ui.exampleItems.replaceChildren(
+  ...examples.map((example) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.setAttribute('role', 'menuitem');
+    item.textContent = example.title;
+    item.addEventListener('click', () => openDiagram(example.source, example.title, `Opened “${example.title}”`));
+    return item;
+  }),
+);
+ui.newDiagram.addEventListener('click', () => openDiagram(blankSource, blankTitle, 'Started a new diagram'));
+ui.examplesToggle.addEventListener('click', () => setExamplesMenu(ui.examplesMenu.classList.contains('is-hidden')));
+document.addEventListener('pointerdown', (event) => {
+  if (event.target instanceof Node && !ui.examplesMenu.parentElement?.contains(event.target)) setExamplesMenu(false);
 });
 
 const openGroups = new Set((readStored(groupsKey) ?? 'business').split(',').filter(Boolean).slice(0, 1));
@@ -1245,14 +1387,107 @@ window.addEventListener('blur', () => {
   canvas.spaceHeld = false;
 });
 
+// Design mode builds on the canvas with the text on demand; Code mode keeps the text docked beside the canvas.
+type Mode = 'design' | 'code';
+let mode: Mode = 'design';
+
+function readMode(): Mode {
+  const requested = new URLSearchParams(location.search).get('mode') ?? readStored(modeKey);
+  return requested === 'code' ? 'code' : 'design';
+}
+
+function setMode(next: Mode): void {
+  mode = next;
+  document.body.classList.toggle('code-mode', next === 'code');
+  ui.modeDesign.setAttribute('aria-pressed', String(next === 'design'));
+  ui.modeCode.setAttribute('aria-pressed', String(next === 'code'));
+  writeStored(modeKey, next);
+  // The address names Code mode, so a link can open straight into it.
+  const url = new URL(location.href);
+  if (next === 'code') url.searchParams.set('mode', 'code');
+  else url.searchParams.delete('mode');
+  history.replaceState(null, '', url);
+  setTextOpen(next === 'code');
+  placeModePill();
+}
+
+function switchMode(next: Mode): void {
+  if (mode === next) return;
+  setMode(next);
+  fit(true);
+}
+
+// The pill under the pressed mode follows its button, including when fonts load or a badge changes its width.
+function placeModePill(): void {
+  const pressed = mode === 'code' ? ui.modeCode : ui.modeDesign;
+  ui.modes.style.setProperty('--pill-x', `${pressed.offsetLeft}px`);
+  ui.modes.style.setProperty('--pill-width', `${pressed.offsetWidth}px`);
+}
+const pillObserver = new ResizeObserver(placeModePill);
+pillObserver.observe(ui.modeDesign);
+pillObserver.observe(ui.modeCode);
+// The first placement must not slide in from the left edge.
+requestAnimationFrame(() => requestAnimationFrame(() => ui.modes.classList.add('is-ready')));
+
+ui.modeDesign.addEventListener('click', () => switchMode('design'));
+ui.modeCode.addEventListener('click', () => switchMode('code'));
+
+ui.notationLong.addEventListener('click', () => selectNotation('long'));
+ui.notationShorthand.addEventListener('click', () => selectNotation('shorthand'));
+
+// The docked panel's right edge resizes it, by dragging or with the arrow keys.
+const minCodeWidth = 320;
+const defaultCodeWidth = 520;
+let codeWidth = defaultCodeWidth;
+
+function setCodeWidth(width: number): void {
+  const maxWidth = Math.max(minCodeWidth, Math.round(window.innerWidth * 0.6));
+  codeWidth = Math.min(maxWidth, Math.max(minCodeWidth, Math.round(width)));
+  document.body.style.setProperty('--code-width', `${codeWidth}px`);
+  ui.drawerResize.setAttribute('aria-valuemin', String(minCodeWidth));
+  ui.drawerResize.setAttribute('aria-valuemax', String(maxWidth));
+  ui.drawerResize.setAttribute('aria-valuenow', String(codeWidth));
+}
+
+let resizeStart: { x: number; width: number } | undefined;
+ui.drawerResize.addEventListener('pointerdown', (event) => {
+  resizeStart = { x: event.clientX, width: codeWidth };
+  ui.drawerResize.setPointerCapture(event.pointerId);
+  ui.drawerResize.classList.add('is-dragging');
+});
+ui.drawerResize.addEventListener('pointermove', (event) => {
+  if (resizeStart) setCodeWidth(resizeStart.width + event.clientX - resizeStart.x);
+});
+function endResize(): void {
+  if (!resizeStart) return;
+  resizeStart = undefined;
+  ui.drawerResize.classList.remove('is-dragging');
+  writeStored(codeWidthKey, String(codeWidth));
+}
+ui.drawerResize.addEventListener('pointerup', endResize);
+ui.drawerResize.addEventListener('pointercancel', endResize);
+ui.drawerResize.addEventListener('keydown', (event) => {
+  const step = event.shiftKey ? 96 : 24;
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+  event.preventDefault();
+  setCodeWidth(codeWidth + (event.key === 'ArrowRight' ? step : -step));
+  writeStored(codeWidthKey, String(codeWidth));
+});
+window.addEventListener('resize', () => setCodeWidth(codeWidth));
+
+installTooltips();
+
 async function start(): Promise<void> {
-  ui.title.value = readStored(titleKey) ?? 'Order fulfilment';
+  setCodeWidth(Number(readStored(codeWidthKey)) || defaultCodeWidth);
+  setMode(readMode());
+  ui.title.value = readStored(titleKey) ?? starterExample.title;
   ui.fileName.textContent = `${fileBase()}.mmd`;
   setCollapsed(readStored(collapsedKey) === '1');
   const shared = await decodeShareHash(location.hash);
-  source = shared.kind === 'source' ? shared.source : (readStored(sourceKey) ?? starterSource);
+  source = shared.kind === 'source' ? shared.source : (readStored(sourceKey) ?? starterExample.source);
   if (shared.kind === 'invalid')
     showToast('That share link is damaged, so your last diagram opened instead.', undefined);
+  showStorageState(shared.kind === 'source' ? 'shared' : 'saved');
   editor.rewriteSource(source);
   await refresh();
 }

@@ -86,13 +86,35 @@
       <div class="title-pill">
         <label class="visually-hidden" for="title">Diagram name</label>
         <input class="title-input" id="title" value="Untitled diagram" spellcheck="false" />
+        <div class="menu-anchor examples">
+          <button
+            class="icon-btn small"
+            type="button"
+            id="examples-toggle"
+            aria-label="New diagram or example"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            aria-controls="examples-menu"
+            data-tip="New diagram or example"
+          >
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+          </button>
+          <div class="menu panel-anim is-hidden" id="examples-menu" role="menu" aria-label="New diagram or example">
+            <button type="button" role="menuitem" id="new-diagram">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+              New diagram
+            </button>
+            <p class="menu-label" role="presentation">Examples</p>
+            <div id="example-items" role="none"></div>
+          </div>
+        </div>
         <button class="icon-btn small mobile-only" type="button" id="m-undo" aria-label="Undo">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M9 14 4 9l5-5" />
             <path d="M4 9h11a5 5 0 0 1 0 10h-3" />
           </svg>
         </button>
-        <div class="mobile-only" style="position: relative">
+        <div class="mobile-only menu-anchor">
           <button
             class="icon-btn small dark"
             type="button"
@@ -195,38 +217,33 @@
     </section>
 
     <div class="float actions appear d1">
-      <div class="segmented" role="group" aria-label="Layout">
-        <button type="button" id="layout-auto" aria-pressed="false">Auto layout</button>
-        <button type="button" id="layout-custom" aria-pressed="true">Custom</button>
-      </div>
-      <button class="icon-btn" type="button" id="undo" aria-label="Undo" title="Undo (⌘Z)">
+      <button class="icon-btn" type="button" id="undo" aria-label="Undo" data-tip="Undo" data-keys="⌘Z">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M9 14 4 9l5-5" />
           <path d="M4 9h11a5 5 0 0 1 0 10h-3" />
         </svg>
       </button>
-      <button class="icon-btn" type="button" id="redo" aria-label="Redo" title="Redo (⇧⌘Z)">
+      <button class="icon-btn" type="button" id="redo" aria-label="Redo" data-tip="Redo" data-keys="⇧⌘Z">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="m15 14 5-5-5-5" />
           <path d="M20 9H9a5 5 0 0 0 0 10h3" />
         </svg>
       </button>
-      <button class="btn btn-clear" type="button" id="clear" title="Remove everything from the canvas">
+      <button class="btn btn-clear" type="button" id="clear" data-tip="Remove everything from the canvas">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
         </svg>
         <span class="label">Clear</span>
       </button>
-      <button class="btn" type="button" id="text-toggle" aria-pressed="false" aria-controls="drawer">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m8 7-5 5 5 5" />
-          <path d="m16 7 5 5-5 5" />
-        </svg>
-        <span class="label">Text</span>
-        <span class="badge" id="text-badge" hidden>0</span>
-      </button>
-      <div style="position: relative">
-        <button class="btn" type="button" id="export-toggle" aria-expanded="false" aria-controls="export-menu">
+      <div class="menu-anchor">
+        <button
+          class="btn"
+          type="button"
+          id="export-toggle"
+          data-tip="Download as SVG, PNG or text"
+          aria-expanded="false"
+          aria-controls="export-menu"
+        >
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 4v11" />
             <path d="m7 10 5 5 5-5" />
@@ -240,13 +257,21 @@
           <button type="button" role="menuitem" data-export="mmd">Text (.mmd)</button>
         </div>
       </div>
-      <button class="btn btn-dark" type="button" id="share">Share</button>
+      <button class="btn btn-dark" type="button" id="share" data-tip="Copy a link that opens this diagram">
+        Share
+      </button>
     </div>
 
     <aside class="float palette panel-anim slide-left appear d1" id="palette" aria-label="Element palette">
       <div class="palette-head">
         <h2>Elements</h2>
-        <button class="icon-btn small" type="button" id="collapse" aria-label="Collapse palette">
+        <button
+          class="icon-btn small"
+          type="button"
+          id="collapse"
+          aria-label="Collapse palette"
+          data-tip="Collapse the palette"
+        >
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="m11 17-5-5 5-5" />
             <path d="m18 17-5-5 5-5" />
@@ -265,7 +290,7 @@
     </aside>
 
     <nav class="float rail panel-anim slide-left is-hidden" id="rail" aria-label="Element palette, collapsed">
-      <button class="rail-btn" type="button" id="expand" aria-label="Expand palette">
+      <button class="rail-btn" type="button" id="expand" aria-label="Expand palette" data-tip="Expand the palette">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="m13 17 5-5-5-5" />
           <path d="m6 17 5-5-5-5" />
@@ -281,7 +306,7 @@
           <span id="inspector-type"></span>
           <span id="inspector-id"></span>
         </div>
-        <button class="icon-btn small" type="button" id="inspector-close" aria-label="Close">
+        <button class="icon-btn small" type="button" id="inspector-close" aria-label="Close" data-tip="Close">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px">
             <path d="M6 6l12 12M18 6 6 18" />
           </svg>
@@ -319,7 +344,7 @@
           <span id="rel-type"></span>
           <span id="rel-id"></span>
         </div>
-        <button class="icon-btn small" type="button" id="rel-close" aria-label="Close">
+        <button class="icon-btn small" type="button" id="rel-close" aria-label="Close" data-tip="Close">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="width: 14px">
             <path d="M6 6l12 12M18 6 6 18" />
           </svg>
@@ -345,9 +370,10 @@
 
     <section class="float drawer panel-anim is-hidden" id="drawer" aria-label="Diagram text">
       <div class="drawer-head">
-        <span class="file" id="file-name">diagram.mmd</span>
+        <h2 class="file"><span class="file-dot" aria-hidden="true"></span><span id="file-name">diagram.mmd</span></h2>
+        <span class="status-chip" id="status-chip" aria-live="polite"></span>
         <div class="drawer-actions">
-          <button class="ghost-btn copy-btn" type="button" id="copy-text">
+          <button class="ghost-btn copy-btn" type="button" id="copy-text" data-tip="Copy the whole text">
             <svg class="icon copy-icon" viewBox="0 0 24 24" aria-hidden="true">
               <rect x="9" y="9" width="11" height="11" rx="2" />
               <path d="M5 15V6a2 2 0 0 1 2-2h9" />
@@ -355,27 +381,62 @@
             <svg class="icon check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>
             <span class="copy-label" aria-live="polite">Copy</span>
           </button>
-          <button class="ghost-btn round" type="button" id="drawer-close" aria-label="Close text">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+        </div>
+      </div>
+      <div class="drawer-tools">
+        <div class="segmented segmented-dark" role="group" aria-label="Relationship notation">
+          <button
+            type="button"
+            id="notation-long"
+            aria-pressed="false"
+            data-tip="Rewrite relationships as relationship lines with IDs"
+          >
+            Long form
+          </button>
+          <button
+            type="button"
+            id="notation-shorthand"
+            aria-pressed="false"
+            data-tip="Rewrite relationships as connectors, such as a --> b"
+          >
+            Shorthand
           </button>
         </div>
       </div>
       <div class="editor" id="editor"></div>
-      <div class="status" id="status" role="status"></div>
+      <div class="problems" id="problems" hidden>
+        <h3 class="problems-title">Problems <span class="count-badge" id="problems-count"></span></h3>
+        <ul id="problems-list"></ul>
+      </div>
+      <footer class="status-bar">
+        <span id="cursor-position"></span>
+        <span id="model-summary"></span>
+        <span class="status-bar-end" id="storage-state"></span>
+      </footer>
+      <div
+        class="drawer-resize"
+        id="drawer-resize"
+        role="separator"
+        tabindex="0"
+        aria-orientation="vertical"
+        aria-label="Resize the text panel"
+        aria-controls="drawer"
+      ></div>
     </section>
 
     <div class="float tray appear d2" id="tray" hidden>
       <span class="tray-title">Unplaced</span>
     </div>
 
-    <div class="float zoom appear d2" role="group" aria-label="Zoom">
+    <div class="float zoom appear d2" role="group" aria-label="Canvas controls">
       <div class="tools" role="group" aria-label="Tool">
         <button
           type="button"
           id="tool-select"
           aria-pressed="true"
           aria-label="Select"
-          title="Select (V): drag on empty canvas to select several, Shift-click to add one"
+          data-tip="Select: drag on empty canvas to select several, Shift-click to add one"
+          data-keys="V"
         >
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 7-6.5 2L10 19z" /></svg>
         </button>
@@ -384,7 +445,8 @@
           id="tool-hand"
           aria-pressed="false"
           aria-label="Hand"
-          title="Hand (H): drag empty canvas to move it. Hold Space to move it from anywhere"
+          data-tip="Hand: drag empty canvas to move it, or hold Space anywhere"
+          data-keys="H"
         >
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8" />
@@ -392,15 +454,54 @@
           </svg>
         </button>
       </div>
-      <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+      <div class="layouts" role="group" aria-label="Layout">
+        <button
+          type="button"
+          id="layout-auto"
+          aria-pressed="false"
+          aria-label="Auto layout"
+          data-tip="Auto layout: Archimaid places every element"
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 8.5a3.5 3.5 0 0 0 3.5 3.5a3.5 3.5 0 0 1 3.5 3.5v.5m-7-8v.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 0 5 15.5v.5"
+            />
+            <rect width="6" height="6" x="16" y="16" rx="1" />
+            <rect width="6" height="6" x="2" y="16" rx="1" />
+            <rect width="6" height="6" x="9" y="2" rx="1" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          id="layout-custom"
+          aria-pressed="true"
+          aria-label="Custom layout"
+          data-tip="Custom layout: elements stay where you put them"
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect width="7" height="7" x="3" y="3" rx="1" />
+            <rect width="7" height="7" x="14" y="4" rx="1" />
+            <rect width="7" height="7" x="4" y="14" rx="1" />
+          </svg>
+        </button>
+      </div>
+      <button type="button" id="zoom-out" aria-label="Zoom out" data-tip="Zoom out" data-keys="⌘ scroll">−</button>
       <output id="zoom-level">100%</output>
-      <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
-      <button class="fit" type="button" id="zoom-fit">Fit</button>
+      <button type="button" id="zoom-in" aria-label="Zoom in" data-tip="Zoom in" data-keys="⌘ scroll">+</button>
+      <button class="fit" type="button" id="zoom-fit" data-tip="Fit the whole diagram in view">Fit</button>
+      <div class="modes" id="modes" role="group" aria-label="Mode">
+        <button type="button" id="mode-design" aria-pressed="true" data-tip="Design: build on the canvas">
+          Design
+        </button>
+        <button type="button" id="mode-code" aria-pressed="false" data-tip="Code: write the text beside the canvas">
+          Code <span class="badge" id="code-badge" hidden>0</span>
+        </button>
+      </div>
     </div>
 
     <div class="float error-chip" id="error-chip" role="alert" hidden>
       <span id="error-message"></span>
-      <button type="button" id="error-open">Open text</button>
+      <button type="button" id="error-open">Show code</button>
     </div>
 
     <div class="float toast is-hidden" id="toast" role="status">

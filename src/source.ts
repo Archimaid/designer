@@ -179,6 +179,39 @@ function elementLineIndex(source: readonly string[], id: string): number {
   return source.findIndex((line) => pattern.test(line));
 }
 
+function noteLineIndex(source: readonly string[], id: string): number {
+  const pattern = new RegExp(`^\\s*note\\s+${escapeRegExp(id)}\\s+${quotedText}`, 'u');
+  return source.findIndex((line) => pattern.test(code(line)));
+}
+
+// Notes follow the other notes, or close the statements before the positions block, as the examples write them.
+export function addNote(source: string, id: string, text: string): string {
+  const result = lines(source);
+  const depth = depths(result);
+  const header = headerIndex(result);
+  let insertAt = -1;
+  for (let index = header + 1; index < result.length; index++) {
+    if (depth[index] === 0 && /^\s*note\s/u.test(code(result[index] ?? ''))) insertAt = index + 1;
+  }
+  if (insertAt < 0) {
+    const block = positionsBlock(result);
+    insertAt = block ? block.open : lastContentIndex(result) + 1;
+    while (insertAt > header + 1 && !result[insertAt - 1]?.trim()) insertAt--;
+  }
+  result.splice(insertAt, 0, `${elementIndent(result)}note ${id} ${JSON.stringify(text)}`);
+  return join(result);
+}
+
+export function setNoteText(source: string, id: string, text: string): string {
+  const result = lines(source);
+  const index = noteLineIndex(result, id);
+  const line = result[index];
+  if (line === undefined) return source;
+  const pattern = new RegExp(`^(\\s*note\\s+${escapeRegExp(id)}\\s+)${quotedText}`, 'u');
+  result[index] = line.replace(pattern, (_, prefix: string) => prefix + JSON.stringify(text));
+  return join(result);
+}
+
 export function renameElement(source: string, id: string, name: string): string {
   const result = lines(source);
   const index = elementLineIndex(result, id);
@@ -337,13 +370,17 @@ export function clearDiagram(source: string): string {
   const settings = result.filter(
     (line, index) => index > header && depth[index] === 0 && /^\s*(?:layout|direction)\s+\S+/u.test(code(line)),
   );
-  return join([...result.slice(0, header + 1), ...settings]);
+  const indent = elementIndent(result);
+  // Custom layout without a positions block draws a warning, so a cleared custom diagram keeps an empty one.
+  const positions = readLayout(source) === 'custom' ? ['', `${indent}positions {`, `${indent}}`] : [];
+  return join([...result.slice(0, header + 1), ...settings, ...positions]);
 }
 
-// Removes the element, its block and everything that refers to it or to its nested elements.
+// Removes the element or note, an element's block, and everything that refers to it or to its nested elements.
 export function removeElement(source: string, id: string): string {
   const result = lines(source);
-  const index = elementLineIndex(result, id);
+  const elementIndex = elementLineIndex(result, id);
+  const index = elementIndex >= 0 ? elementIndex : noteLineIndex(result, id);
   if (index < 0) return source;
   const depth = depths(result);
   let end = index;

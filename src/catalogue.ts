@@ -41,8 +41,20 @@ export const paletteTypes: readonly PaletteType[] = Object.entries(elementTypes)
   icon: type.notation?.icon?.length ? type.notation.icon : fallbackIcon,
 }));
 
+// A note is no ArchiMate element, but it is placed like one, so it sits with the other loose ends under Other.
+export const notePaletteType: PaletteType = {
+  key: 'note',
+  name: 'Note',
+  label: 'Note',
+  category: 'composite',
+  icon: [{ d: 'M3 2H10L13 5V14H3Z' }, { d: 'M10 2V5H13' }],
+};
+
 export const paletteGroups: readonly PaletteGroup[] = groupNames
-  .map(([category, name]) => ({ category, name, types: paletteTypes.filter((type) => type.category === category) }))
+  .map(([category, name]) => {
+    const types = paletteTypes.filter((type) => type.category === category);
+    return { category, name, types: category === 'composite' ? [...types, notePaletteType] : types };
+  })
   .filter(({ types }) => types.length > 0);
 
 const typesByKey = new Map(paletteTypes.map((type) => [type.key, type]));

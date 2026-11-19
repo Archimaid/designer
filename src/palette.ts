@@ -9,6 +9,7 @@ export interface DropTarget {
 }
 
 const dragThreshold = 4;
+const popoutMargin = 24;
 
 // Tiles start a pointer drag; a ghost copy follows the pointer and the drop lands where the pointer is,
 // unless it is released over a floating panel. The drag is followed on the window, not the tile: a tile in
@@ -72,7 +73,7 @@ function typeTile(type: PaletteType, target: DropTarget): HTMLButtonElement {
   const tile = document.createElement('button');
   tile.type = 'button';
   tile.className = `tile t-${type.category}`;
-  tile.title = `${type.name}: drag onto the canvas`;
+  tile.dataset.tip = `${type.name}: drag onto the canvas`;
   tile.setAttribute('aria-label', `Add ${type.name}`);
   tile.append(tileIcon(type), type.label);
   makeDraggable(tile, () => ({ kind: 'type', type }), target);
@@ -153,6 +154,14 @@ export function buildPalette(options: PaletteOptions, target: DropTarget): void 
     for (const type of group.types) tiles.append(typeTile(type, target));
     popout.append(title, tiles);
     item.append(button, popout);
+    // The rail sits in the middle of the window, so a tall layer's popout moves up to stay on screen.
+    const keepInView = () => {
+      popout.style.top = '';
+      const overflow = popout.getBoundingClientRect().bottom - (window.innerHeight - popoutMargin);
+      if (overflow > 0) popout.style.top = `${popout.offsetTop - overflow}px`;
+    };
+    item.addEventListener('pointerenter', keepInView);
+    item.addEventListener('focusin', keepInView);
     rail.append(item);
   }
 }
