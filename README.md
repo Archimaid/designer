@@ -38,6 +38,19 @@ npm run og
 
 Code from the playground (`render.ts`, `editor.ts`, `syntax.ts`, `share.ts`, `storage.ts`, `export.ts`) is copied here for now; it can move into a shared package once both apps settle.
 
+## Deploy to Cloudflare
+
+The designer deploys as a Cloudflare Worker that serves static files, like the playground. `wrangler.jsonc` points Wrangler at `dist`. Connect the repository to a Worker named `archimaid-designer` with these build settings:
+
+| Setting               | Value                      |
+| --------------------- | -------------------------- |
+| Path (root directory) | empty, the repository root |
+| Build command         | `npm ci && npm run build`  |
+| Deploy command        | `npx wrangler deploy`      |
+| Environment variable  | `NODE_VERSION=24`          |
+
+Then add `design.archimaid.org` as a custom domain.
+
 ## Licence
 
 MIT. ArchiMate® is a registered trademark of The Open Group. Archimaid is not affiliated with or endorsed by The Open Group.
