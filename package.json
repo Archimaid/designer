@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "prettier --check .",
     "format": "prettier --write .",
-    "test": "node --test test/*.test.ts"
+    "test": "node --test test/*.test.ts",
+    "og": "npm run build && node scripts/render-og.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.1",
@@ -29,6 +30,7 @@
   },
   "devDependencies": {
     "@types/node": "22.20.5",
+    "playwright": "1.65.0",
     "prettier": "3.10.1",
     "typescript": "6.0.3",
     "vite": "8.3.8"

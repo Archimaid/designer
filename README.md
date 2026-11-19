@@ -31,7 +31,10 @@ npm install
 npm run dev
 npm test
 npm run build
+npm run og
 ```
+
+`npm run og` renders `public/og.png`, the social preview, from the built designer with Playwright; run it after changing the starter diagram or the look, and commit the image. It needs Playwright's Chromium (`npx playwright install chromium`).
 
 Code from the playground (`render.ts`, `editor.ts`, `syntax.ts`, `share.ts`, `storage.ts`, `export.ts`) is copied here for now; it can move into a shared package once both apps settle.
 
