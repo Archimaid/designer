@@ -24,7 +24,7 @@ Nesting new elements inside containers and moving elements between containers ar
 
 ## Development
 
-The designer needs `layout custom`, which is in archimaid 0.2.0. Until that version is published, `archimaid` is linked from a sibling checkout at `../Archimate for Mermaid`; build that checkout first (`npm run build` there).
+The designer needs `layout custom`, which archimaid has since 0.2.0, and installs `archimaid` from npm.
 
 ```sh
 npm install
