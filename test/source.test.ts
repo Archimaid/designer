@@ -11,6 +11,7 @@ import {
   setAnchor,
   setRelationshipGlyph,
   setRelationshipLabel,
+  shiftPositions,
   idFromName,
   readDescription,
   removeElement,
@@ -166,4 +167,11 @@ test('retypes, relabels, anchors and removes relationships', () => {
   result = removeRelationship(result, 1);
   assert.deepEqual(errors(result), []);
   assert.ok(!result.includes('orders ==> fulfil'));
+});
+
+test('shifting makes room above and left without moving nested positions', () => {
+  const result = shiftPositions(base, 2, 3, new Set(['clerk', 'oms']));
+  assert.ok(result.includes('    clerk at 2 3\n    oms at 12 3'));
+  const nested = base.replace('    oms at 10 0', '    oms at 10 0\n    billing at 1 1');
+  assert.ok(shiftPositions(nested, 1, 1, new Set(['clerk', 'oms'])).includes('    billing at 1 1'));
 });

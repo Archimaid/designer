@@ -160,6 +160,17 @@ kbd,
   cursor: pointer;
 }
 
+.stage [data-archimate-element].is-target > rect,
+.stage [data-archimate-element].is-target > path {
+  stroke: var(--focus);
+  stroke-width: 4px;
+  transition: stroke-width 0.12s ease;
+}
+
+.stage [data-archimate-element].is-target {
+  filter: drop-shadow(0 0 6px rgba(31, 127, 174, 0.45));
+}
+
 .stage path[data-archimate-relationship].is-selected {
   stroke: var(--focus);
   stroke-width: 2.6;

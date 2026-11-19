@@ -579,3 +579,20 @@ export function setAnchor(source: string, index: number, end: RelationshipEnd, s
   }
   return join(result);
 }
+
+// Positions cannot be negative, so making room above or left of the top-left element moves every given
+// top-level element instead. Nested positions are relative to their parent and stay as they are.
+export function shiftPositions(source: string, dx: number, dy: number, ids: ReadonlySet<string>): string {
+  const result = lines(source);
+  const block = positionsBlock(result);
+  if (!block || (!dx && !dy)) return source;
+  for (let index = block.open + 1; index < block.close; index++) {
+    result[index] =
+      result[index]?.replace(
+        /^(\s*)(\S+)(\s+at\s+)(\d+)(\s+)(\d+)/u,
+        (whole, indent: string, id: string, at: string, x: string, gap: string, y: string) =>
+          ids.has(id) ? `${indent}${id}${at}${Number(x) + dx}${gap}${Number(y) + dy}` : whole,
+      ) ?? '';
+  }
+  return join(result);
+}

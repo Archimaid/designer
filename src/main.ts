@@ -41,6 +41,7 @@ import {
   setLayout,
   setPosition,
   setPositions,
+  shiftPositions,
   usedWords,
   type GridPoint,
 } from './source.ts';
@@ -142,7 +143,8 @@ const afterRender: (() => void)[] = [];
 const canvas: DiagramCanvas = new DiagramCanvas(ui.canvas, ui.stage, ui.overlay, {
   select: (id) => select(id),
   snap: (id, topLeft): Snapped => {
-    const grid = gridFor(id, topLeft);
+    const raw = rawGridFor(id, topLeft);
+    const grid = parents().has(id) ? gridFor(id, topLeft) : raw;
     const box = canvas.boxes.get(id);
     const origin = gridOrigin(id);
     return {
@@ -152,7 +154,7 @@ const canvas: DiagramCanvas = new DiagramCanvas(ui.canvas, ui.stage, ui.overlay,
         width: box?.width ?? 140,
         height: box?.height ?? 60,
       },
-      label: `${id} at ${grid.x} ${grid.y}`,
+      label: grid.x < 0 || grid.y < 0 ? 'Moves the others to make room' : `${id} at ${grid.x} ${grid.y}`,
     };
   },
   move: (id, topLeft) => moveElement(id, topLeft),
@@ -203,12 +205,37 @@ function gridOrigin(id: string): Point {
   return { x: box.x + layoutPadding, y: box.y + canvas.headerOf(parent) + layoutPadding };
 }
 
-function gridFor(id: string, topLeft: Point): GridPoint {
+function rawGridFor(id: string, topLeft: Point): GridPoint {
   const origin = gridOrigin(id);
-  return {
-    x: Math.max(0, Math.round((topLeft.x - origin.x) / gridUnit)),
-    y: Math.max(0, Math.round((topLeft.y - origin.y) / gridUnit)),
-  };
+  return { x: Math.round((topLeft.x - origin.x) / gridUnit), y: Math.round((topLeft.y - origin.y) / gridUnit) };
+}
+
+function gridFor(id: string, topLeft: Point): GridPoint {
+  const raw = rawGridFor(id, topLeft);
+  return { x: Math.max(0, raw.x), y: Math.max(0, raw.y) };
+}
+
+// The canvas has no edge: a top-level element placed above or left of the others shifts them all by the
+// same amount, and the view moves with them so nothing appears to jump. Nested elements stay in their parent.
+function placeAt(text: string, id: string, raw: GridPoint): { text: string; grid: GridPoint } {
+  if (parents().has(id)) {
+    const grid = { x: Math.max(0, raw.x), y: Math.max(0, raw.y) };
+    return { text: setPosition(text, id, grid), grid };
+  }
+  const dx = Math.max(0, -raw.x);
+  const dy = Math.max(0, -raw.y);
+  let next = text;
+  if (dx || dy) {
+    const nested = parents();
+    const topLevel = new Set([
+      ...(model?.elements ?? []).filter((element) => !nested.has(element.id)).map((element) => element.id),
+      ...(model?.notes ?? []).filter((note) => !note.on).map((note) => note.id),
+    ]);
+    next = shiftPositions(next, dx, dy, topLevel);
+    afterRender.push(() => canvas.shiftView(dx * gridUnit, dy * gridUnit));
+  }
+  const grid = { x: raw.x + dx, y: raw.y + dy };
+  return { text: setPosition(next, id, grid), grid };
 }
 
 // Pins every element at the place automatic layout put it, so switching to custom layout moves nothing.
@@ -298,7 +325,6 @@ function persist(): void {
 }
 
 function moveElement(id: string, topLeft: Point): void {
-  const grid = gridFor(id, topLeft);
   const custom = model?.layout === 'custom';
   let next = custom ? source : toCustomLayout(source, id);
   // A position inside an unpositioned parent is ignored, so the parent is pinned where it is.
@@ -306,7 +332,9 @@ function moveElement(id: string, topLeft: Point): void {
     const box = canvas.boxes.get(parent);
     if (box && !positionOf(parent)) next = setPosition(next, parent, gridFor(parent, box));
   }
-  next = setPosition(next, id, grid);
+  const placed = placeAt(next, id, rawGridFor(id, topLeft));
+  const { grid } = placed;
+  next = placed.text;
   commit(next, custom ? `Moved ${nameOf(id)} · ${id} at ${grid.x} ${grid.y}` : 'Switched to custom layout');
 }
 
@@ -316,18 +344,19 @@ function dropOnCanvas(payload: DragPayload, client: Point | undefined): void {
   const point = canvas.layoutPoint(at.x, at.y);
   const topLeft = { x: point.x - 70, y: point.y - 30 };
   if (payload.kind === 'place') {
-    commit(setPosition(source, payload.id, gridFor(payload.id, topLeft)), `Placed ${nameOf(payload.id)}`);
+    commit(placeAt(source, payload.id, rawGridFor(payload.id, topLeft)).text, `Placed ${nameOf(payload.id)}`);
     return;
   }
   const { type } = payload;
   // The ID comes from the default name, so it follows the name the person types next.
   const id = idFromName(type.label, usedWords(source));
   const custom = model?.layout === 'custom';
-  const grid = {
-    x: Math.max(0, Math.round((topLeft.x - layoutPadding) / gridUnit)),
-    y: Math.max(0, Math.round((topLeft.y - layoutPadding) / gridUnit)),
+  const raw = {
+    x: Math.round((topLeft.x - layoutPadding) / gridUnit),
+    y: Math.round((topLeft.y - layoutPadding) / gridUnit),
   };
-  const next = addElement(source, { type: type.key, id, name: type.label, ...(custom && { at: grid }) });
+  const added = addElement(source, { type: type.key, id, name: type.label });
+  const next = custom ? placeAt(added, id, raw).text : added;
   afterRender.push(() => {
     select(id);
     startRename(id);

@@ -315,6 +315,12 @@ export class DiagramCanvas {
     input.select();
   }
 
+  // Keeps the drawing still on screen after its layout coordinates moved by the given amount.
+  shiftView(dx: number, dy: number): void {
+    this.pan = { x: this.pan.x - dx * this.scale, y: this.pan.y - dy * this.scale };
+    this.applyTransform();
+  }
+
   zoomBy(factor: number, anchor?: Point): void {
     const rect = this.root.getBoundingClientRect();
     const client = anchor ?? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
@@ -424,9 +430,12 @@ export class DiagramCanvas {
         return;
       }
       case 'connect':
-      case 'reconnect':
+      case 'reconnect': {
         this.updateLine(this.layoutPoint(client.x, client.y));
+        const target = this.elementAt(client.x, client.y);
+        this.markTarget(gesture.kind === 'connect' && target === gesture.from ? undefined : target);
         return;
+      }
       case 'none':
         return;
     }
@@ -436,6 +445,7 @@ export class DiagramCanvas {
     const gesture = this.gesture;
     this.gesture = { kind: 'none' };
     this.root.classList.remove('is-panning');
+    this.markTarget(undefined);
     if (this.root.hasPointerCapture(event.pointerId)) this.root.releasePointerCapture(event.pointerId);
     switch (gesture.kind) {
       case 'pan':
@@ -476,6 +486,7 @@ export class DiagramCanvas {
     this.root.classList.remove('is-panning');
     this.showGhost(null);
     this.line.remove();
+    this.markTarget(undefined);
     this.svg?.querySelector('.is-moving')?.classList.remove('is-moving');
     if (gesture.kind === 'drag') {
       this.groupOf(gesture.id)?.classList.remove('is-dragging');
@@ -489,6 +500,14 @@ export class DiagramCanvas {
 
   private groupOf(id: string): SVGGElement | null {
     return this.svg?.querySelector<SVGGElement>(`[data-archimate-element="${CSS.escape(id)}"]`) ?? null;
+  }
+
+  // The element a line would attach to gets a heavy outline while the pointer is over it.
+  private markTarget(id: string | undefined): void {
+    for (const marked of this.svg?.querySelectorAll('.is-target') ?? []) {
+      if (marked.getAttribute('data-archimate-element') !== id) marked.classList.remove('is-target');
+    }
+    if (id) this.groupOf(id)?.classList.add('is-target');
   }
 
   private updateLine(to: Point): void {
