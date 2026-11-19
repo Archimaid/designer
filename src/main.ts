@@ -41,9 +41,11 @@ import {
   setLayout,
   setPosition,
   setPositions,
+  setSize,
   shiftPositions,
   usedWords,
   type GridPoint,
+  type GridSize,
 } from './source.ts';
 import starterSource from './starter.mmd?raw';
 import { readStored, writeStored } from './storage.ts';
@@ -158,6 +160,21 @@ const canvas: DiagramCanvas = new DiagramCanvas(ui.canvas, ui.stage, ui.overlay,
     };
   },
   move: (id, topLeft) => moveElement(id, topLeft),
+  snapResize: (id, box): Snapped => {
+    const grid = parents().has(id) ? gridFor(id, box) : rawGridFor(id, box);
+    const origin = gridOrigin(id);
+    const size = gridSize(box);
+    return {
+      box: {
+        x: origin.x + grid.x * gridUnit,
+        y: origin.y + grid.y * gridUnit,
+        width: size.width * gridUnit,
+        height: size.height * gridUnit,
+      },
+      label: `size ${size.width}x${size.height}`,
+    };
+  },
+  resize: (id, box) => moveElement(id, box, gridSize(box)),
   connect: (from, to, client) => {
     openPicker(client, `${nameOf(from)} → ${nameOf(to)}`, (glyph) => {
       commit(addRelationship(source, from, glyph, to), `Connected ${nameOf(from)} ${glyph} ${nameOf(to)}`);
@@ -324,7 +341,15 @@ function persist(): void {
   writeStored(sourceKey, source);
 }
 
-function moveElement(id: string, topLeft: Point): void {
+function gridSize(box: { width: number; height: number }): GridSize {
+  return {
+    width: Math.max(1, Math.round(box.width / gridUnit)),
+    height: Math.max(1, Math.round(box.height / gridUnit)),
+  };
+}
+
+// Moving and resizing share one edit: resizing from the top or left edge moves the element too.
+function moveElement(id: string, topLeft: Point, size?: GridSize): void {
   const custom = model?.layout === 'custom';
   let next = custom ? source : toCustomLayout(source, id);
   // A position inside an unpositioned parent is ignored, so the parent is pinned where it is.
@@ -334,8 +359,11 @@ function moveElement(id: string, topLeft: Point): void {
   }
   const placed = placeAt(next, id, rawGridFor(id, topLeft));
   const { grid } = placed;
-  next = placed.text;
-  commit(next, custom ? `Moved ${nameOf(id)} · ${id} at ${grid.x} ${grid.y}` : 'Switched to custom layout');
+  next = size ? setSize(placed.text, id, size) : placed.text;
+  const done = size
+    ? `Resized ${nameOf(id)} · size ${size.width}x${size.height}`
+    : `Moved ${nameOf(id)} · ${id} at ${grid.x} ${grid.y}`;
+  commit(next, custom ? done : 'Switched to custom layout');
 }
 
 function dropOnCanvas(payload: DragPayload, client: Point | undefined): void {

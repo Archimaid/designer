@@ -596,3 +596,25 @@ export function shiftPositions(source: string, dx: number, dy: number, ids: Read
   }
   return join(result);
 }
+
+export interface GridSize {
+  readonly width: number;
+  readonly height: number;
+}
+
+// Sets the minimum size on an existing position; the renderer still grows an element to fit its name.
+export function setSize(source: string, id: string, size: GridSize): string {
+  const result = lines(source);
+  const block = positionsBlock(result);
+  if (!block) return source;
+  const pattern = new RegExp(`^(\\s*${escapeRegExp(id)}\\s+at\\s+\\d+\\s+\\d+)(?:\\s+size\\s+\\d+x\\d+)?(.*)$`, 'u');
+  for (let index = block.open + 1; index < block.close; index++) {
+    const match = pattern.exec(result[index] ?? '');
+    if (!match) continue;
+    const width = Math.max(1, Math.round(size.width));
+    const height = Math.max(1, Math.round(size.height));
+    result[index] = `${match[1] ?? ''} size ${width}x${height}${match[2] ?? ''}`;
+    return join(result);
+  }
+  return source;
+}

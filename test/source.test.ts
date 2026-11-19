@@ -11,6 +11,7 @@ import {
   setAnchor,
   setRelationshipGlyph,
   setRelationshipLabel,
+  setSize,
   shiftPositions,
   idFromName,
   readDescription,
@@ -174,4 +175,11 @@ test('shifting makes room above and left without moving nested positions', () =>
   assert.ok(result.includes('    clerk at 2 3\n    oms at 12 3'));
   const nested = base.replace('    oms at 10 0', '    oms at 10 0\n    billing at 1 1');
   assert.ok(shiftPositions(nested, 1, 1, new Set(['clerk', 'oms'])).includes('    billing at 1 1'));
+});
+
+test('sets a size on a position and replaces an earlier one', () => {
+  const sized = setSize(base, 'clerk', { width: 9, height: 4 });
+  assert.ok(sized.includes('    clerk at 0 0 size 9x4\n'));
+  assert.ok(setSize(sized, 'clerk', { width: 0, height: 5 }).includes('    clerk at 0 0 size 1x5\n'));
+  assert.deepEqual(errors(sized), []);
 });

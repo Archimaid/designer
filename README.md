@@ -8,6 +8,8 @@ The text is the only document state. Every gesture is a small edit to the `archi
 
 - Drag an element type from the palette onto the canvas and type its name. The ID follows the name until you change it yourself.
 - Drag elements to move them. In custom layout this writes `id at x y` in the `positions` block; in auto layout the first move pins every element where it is and switches to custom layout.
+- Drag the edges or corners of a selected element to resize it, which writes `size WxH`; the round handles in the middle of each edge start a relationship instead. An element never shrinks below the size its name needs.
+- Move elements anywhere: placing one above or left of the others shifts every position to make room.
 - Select an element to edit its name and description. Leaving a field or the element saves to the text.
 - Drag from a selection handle to another element and pick the relationship type, with one key per type.
 - Click a relationship to select it. Drag either end onto another element to reconnect it, or onto a side of its own element to pin that side (`from` and `to` in the `positions` block). Change its type, add a label, or delete it.

@@ -17,6 +17,7 @@ export interface Snapped {
 }
 
 export type End = 'source' | 'target';
+export type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 export type Side = 'T' | 'R' | 'B' | 'L';
 
 export interface CanvasEvents {
@@ -25,6 +26,8 @@ export interface CanvasEvents {
   // An end dropped on an element: another element reconnects it, its own element pins the side.
   readonly reconnect: (id: string, end: End, element: string, side: Side) => void;
   readonly snap: (id: string, topLeft: Point) => Snapped;
+  readonly snapResize: (id: string, box: Box) => Snapped;
+  readonly resize: (id: string, box: Box) => void;
   readonly move: (id: string, topLeft: Point) => void;
   readonly connect: (from: string, to: string, client: Point) => void;
   readonly rename: (id: string) => void;
@@ -44,6 +47,14 @@ type Gesture =
   | { readonly kind: 'press'; readonly id: string; readonly start: Point; readonly box: Box }
   | { readonly kind: 'drag'; readonly id: string; readonly start: Point; readonly box: Box; target: Point }
   | { readonly kind: 'connect'; readonly from: string; readonly origin: Point }
+  | {
+      readonly kind: 'resize';
+      readonly id: string;
+      readonly edge: Edge;
+      readonly start: Point;
+      readonly box: Box;
+      target: Box;
+    }
   | { readonly kind: 'reconnect'; readonly id: string; readonly end: End; readonly origin: Point };
 
 function parseTranslate(element: Element): Point | undefined {
@@ -75,6 +86,37 @@ function pathEnds(path: SVGPathElement): { start: Point; end: Point } | undefine
   if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) return undefined;
   return { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } };
 }
+
+const minimumSide = 20;
+
+// Dragging an edge moves only that edge; the opposite edge stays where it was.
+function resized(box: Box, edge: Edge, dx: number, dy: number): Box {
+  let { x, y, width, height } = box;
+  if (edge.includes('e')) width = Math.max(minimumSide, box.width + dx);
+  if (edge.includes('s')) height = Math.max(minimumSide, box.height + dy);
+  if (edge.includes('w')) {
+    width = Math.max(minimumSide, box.width - dx);
+    x = box.x + box.width - width;
+  }
+  if (edge.includes('n')) {
+    height = Math.max(minimumSide, box.height - dy);
+    y = box.y + box.height - height;
+  }
+  return { x, y, width, height };
+}
+
+const allEdges: readonly Edge[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+
+const edgeCursors: Record<Edge, string> = {
+  n: 'ns-resize',
+  s: 'ns-resize',
+  e: 'ew-resize',
+  w: 'ew-resize',
+  ne: 'nesw-resize',
+  sw: 'nesw-resize',
+  nw: 'nwse-resize',
+  se: 'nwse-resize',
+};
 
 function elementId(target: EventTarget | null): string | undefined {
   if (!(target instanceof Element)) return undefined;
@@ -198,7 +240,7 @@ export class DiagramCanvas {
 
   private drawSelection(): void {
     this.ring.remove();
-    for (const handle of this.overlay.querySelectorAll('.handle')) handle.remove();
+    for (const handle of this.overlay.querySelectorAll('.handle, .resize-zone')) handle.remove();
     for (const path of this.svg?.querySelectorAll('.is-selected') ?? []) path.classList.remove('is-selected');
     const edge = this.selectedRelationship ? this.edges.get(this.selectedRelationship) : undefined;
     if (edge && this.selectedRelationship) {
@@ -229,6 +271,33 @@ export class DiagramCanvas {
       height: `${box.height + 2 * inset}px`,
     });
     this.overlay.append(this.ring);
+    // Edge and corner strips sit under the round connect handles, which win where they overlap.
+    const band = 10;
+    const outer = { x: box.x - inset, y: box.y - inset, width: box.width + 2 * inset, height: box.height + 2 * inset };
+    const zones: readonly (readonly [Edge, number, number, number, number])[] = [
+      ['n', outer.x, outer.y - band / 2, outer.width, band],
+      ['s', outer.x, outer.y + outer.height - band / 2, outer.width, band],
+      ['w', outer.x - band / 2, outer.y, band, outer.height],
+      ['e', outer.x + outer.width - band / 2, outer.y, band, outer.height],
+      ['nw', outer.x - band, outer.y - band, 2 * band, 2 * band],
+      ['ne', outer.x + outer.width - band, outer.y - band, 2 * band, 2 * band],
+      ['sw', outer.x - band, outer.y + outer.height - band, 2 * band, 2 * band],
+      ['se', outer.x + outer.width - band, outer.y + outer.height - band, 2 * band, 2 * band],
+    ];
+    for (const [edge, x, y, width, height] of zones) {
+      const zone = document.createElement('span');
+      zone.className = `resize-zone${edge.length === 2 ? ' corner' : ''}`;
+      zone.dataset.edge = edge;
+      zone.title = 'Drag to resize';
+      Object.assign(zone.style, {
+        left: `${x}px`,
+        top: `${y}px`,
+        width: `${width}px`,
+        height: `${height}px`,
+        cursor: edgeCursors[edge],
+      });
+      this.overlay.append(zone);
+    }
     const sides: readonly (readonly [string, number, number])[] = [
       ['top', box.x + box.width / 2, box.y - inset],
       ['right', box.x + box.width + inset, box.y + box.height / 2],
@@ -376,6 +445,12 @@ export class DiagramCanvas {
         ?.classList.add('is-moving');
       this.overlay.append(this.line);
       this.updateLine(this.layoutPoint(client.x, client.y));
+    } else if (target?.closest('.resize-zone') && this.selected && !handle) {
+      const zone = target.closest<HTMLElement>('.resize-zone');
+      const edge = allEdges.find((candidate) => candidate === zone?.dataset.edge);
+      const box = this.boxes.get(this.selected);
+      if (!edge || !box) return;
+      this.gesture = { kind: 'resize', id: this.selected, edge, start: client, box, target: box };
     } else if (handle && this.selected) {
       const box = this.boxes.get(this.selected);
       if (!box) return;
@@ -429,6 +504,13 @@ export class DiagramCanvas {
         this.showGhost(this.events.snap(gesture.id, gesture.target));
         return;
       }
+      case 'resize': {
+        const dx = (client.x - gesture.start.x) / this.scale;
+        const dy = (client.y - gesture.start.y) / this.scale;
+        gesture.target = resized(gesture.box, gesture.edge, dx, dy);
+        this.showGhost(this.events.snapResize(gesture.id, gesture.target));
+        return;
+      }
       case 'connect':
       case 'reconnect': {
         this.updateLine(this.layoutPoint(client.x, client.y));
@@ -463,6 +545,10 @@ export class DiagramCanvas {
         }
         return;
       }
+      case 'resize':
+        this.showGhost(null);
+        if (gesture.target !== gesture.box) this.events.resize(gesture.id, gesture.target);
+        return;
       case 'reconnect': {
         this.line.remove();
         this.svg?.querySelector('.is-moving')?.classList.remove('is-moving');

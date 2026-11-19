@@ -225,6 +225,24 @@ kbd,
   white-space: nowrap;
 }
 
+.resize-zone {
+  position: absolute;
+  pointer-events: auto;
+}
+
+.resize-zone.corner::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border: 2px solid var(--focus);
+  border-radius: 2px;
+  background: var(--white);
+}
+
 .handle {
   position: absolute;
   width: 14px;
