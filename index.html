@@ -290,10 +290,14 @@
       <div class="drawer-head">
         <span class="file" id="file-name">diagram.mmd</span>
         <div class="drawer-actions">
-          <button class="ghost-btn" type="button" id="copy-text">Copy</button>
-          <a class="ghost-btn" id="open-playground" href="https://try.archimaid.org" target="_blank" rel="noopener">
-            <span class="desktop-text">Open in playground</span><span class="phone-text">Playground</span></a
-          >
+          <button class="ghost-btn copy-btn" type="button" id="copy-text">
+            <svg class="icon copy-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="9" y="9" width="11" height="11" rx="2" />
+              <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+            </svg>
+            <svg class="icon check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>
+            <span class="copy-label" aria-live="polite">Copy</span>
+          </button>
           <button class="ghost-btn round" type="button" id="drawer-close" aria-label="Close text">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
           </button>

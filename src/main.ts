@@ -14,6 +14,7 @@ import {
 import { DiagramCanvas, gridUnit, layoutPadding, type End, type Point, type Side, type Snapped } from './canvas.ts';
 import { paletteType, tileIcon } from './catalogue.ts';
 import { createSourceEditor } from './editor.ts';
+import { copyText } from './clipboard.ts';
 import { downloadBlob, prepareSvg, renderPng } from './export.ts';
 import { buildAddSheet, buildPalette, makeDraggable, type DragPayload } from './palette.ts';
 import { closePicker, openPicker } from './picker.ts';
@@ -111,7 +112,6 @@ const ui = {
   editor: byId('editor'),
   status: byId('status'),
   copyText: byId<HTMLButtonElement>('copy-text'),
-  openPlayground: byId<HTMLAnchorElement>('open-playground'),
   drawerClose: byId<HTMLButtonElement>('drawer-close'),
   tray: byId('tray'),
   zoomOut: byId<HTMLButtonElement>('zoom-out'),
@@ -1025,24 +1025,22 @@ document.addEventListener('pointerdown', (event) => {
 ui.share.addEventListener('click', async () => {
   const link = await shareLink();
   history.replaceState(null, '', link);
-  try {
-    await navigator.clipboard.writeText(link);
-    showToast('Link copied', undefined);
-  } catch {
-    showToast('Link is in the address bar', undefined);
-  }
+  showToast((await copyText(link)) ? 'Link copied' : 'Link is in the address bar', undefined);
 });
+
+// The button confirms a copy itself, so the text panel needs no notification.
+let copyReset: number | undefined;
 ui.copyText.addEventListener('click', async () => {
-  try {
-    await navigator.clipboard.writeText(source);
-    showToast('Text copied', undefined);
-  } catch {
-    showToast('Copy is blocked in this browser', undefined);
-  }
-});
-ui.openPlayground.addEventListener('click', async (event) => {
-  event.preventDefault();
-  window.open(`https://try.archimaid.org/${await encodeShareHash(source)}`, '_blank', 'noopener');
+  const copied = await copyText(source);
+  const label = ui.copyText.querySelector('.copy-label');
+  ui.copyText.classList.toggle('is-copied', copied);
+  ui.copyText.classList.toggle('is-failed', !copied);
+  if (label) label.textContent = copied ? 'Copied' : 'Copy failed';
+  clearTimeout(copyReset);
+  copyReset = window.setTimeout(() => {
+    ui.copyText.classList.remove('is-copied', 'is-failed');
+    if (label) label.textContent = 'Copy';
+  }, 1800);
 });
 
 ui.title.addEventListener('change', () => {

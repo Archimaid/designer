@@ -1111,6 +1111,34 @@ textarea.input {
   cursor: pointer;
 }
 
+.copy-btn {
+  gap: 6px;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.copy-btn .check-icon,
+.copy-btn.is-copied .copy-icon {
+  display: none;
+}
+
+.copy-btn.is-copied .check-icon {
+  display: inline;
+  stroke: var(--code-valid);
+  animation: pop 0.2s var(--ease-out) both;
+}
+
+.copy-btn.is-copied {
+  border-color: var(--code-valid);
+  color: var(--code-valid);
+}
+
+.copy-btn.is-failed {
+  border-color: var(--code-error);
+  color: var(--code-error);
+}
+
 .ghost-btn.round {
   padding: 0;
 }
@@ -1426,8 +1454,7 @@ textarea.input {
 
 .mobile-only,
 .sheet,
-.scrim,
-.phone-text {
+.scrim {
   display: none;
 }
 
@@ -1875,13 +1902,8 @@ textarea.input {
   body.text-view .sheet,
   body.text-view .inspector,
   body.text-view .toast,
-  #drawer-close,
-  .desktop-text {
+  #drawer-close {
     display: none !important;
-  }
-
-  .phone-text {
-    display: inline;
   }
 
   .drawer-head .file {
