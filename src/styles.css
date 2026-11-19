@@ -829,13 +829,13 @@ kbd,
 
 .popout {
   position: absolute;
-  left: 58px;
-  top: -10px;
-  width: 260px;
+  left: 60px;
+  top: -12px;
+  width: 316px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: 12px;
+  padding: 16px;
   background: var(--white);
   border: 2px solid var(--ink);
   border-radius: 16px;
@@ -863,6 +863,14 @@ kbd,
 .popout-title {
   font-size: 13px;
   font-weight: 700;
+}
+
+.popout .tiles {
+  gap: 8px;
+}
+
+.popout .tile {
+  padding: 6px 10px 6px 8px;
 }
 
 .rail-item:hover .popout,
