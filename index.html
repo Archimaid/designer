@@ -115,6 +115,9 @@
             <button type="button" role="menuitem" data-more="svg">Export SVG</button>
             <button type="button" role="menuitem" data-more="png">Export PNG</button>
             <button type="button" role="menuitem" data-more="mmd">Export text (.mmd)</button>
+            <button class="menu-clear" type="button" role="menuitem" id="m-clear">
+              <span class="label">Clear canvas</span>
+            </button>
           </div>
         </div>
       </div>
@@ -207,6 +210,12 @@
           <path d="m15 14 5-5-5-5" />
           <path d="M20 9H9a5 5 0 0 0 0 10h3" />
         </svg>
+      </button>
+      <button class="btn btn-clear" type="button" id="clear" title="Remove everything from the canvas">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+        </svg>
+        <span class="label">Clear</span>
       </button>
       <button class="btn" type="button" id="text-toggle" aria-pressed="false" aria-controls="drawer">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -360,6 +369,29 @@
     </div>
 
     <div class="float zoom appear d2" role="group" aria-label="Zoom">
+      <div class="tools" role="group" aria-label="Tool">
+        <button
+          type="button"
+          id="tool-select"
+          aria-pressed="true"
+          aria-label="Select"
+          title="Select (V): drag on empty canvas to select several, Shift-click to add one"
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 7-6.5 2L10 19z" /></svg>
+        </button>
+        <button
+          type="button"
+          id="tool-hand"
+          aria-pressed="false"
+          aria-label="Hand"
+          title="Hand (H): drag empty canvas to move it. Hold Space to move it from anywhere"
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8" />
+            <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
+          </svg>
+        </button>
+      </div>
       <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
       <output id="zoom-level">100%</output>
       <button type="button" id="zoom-in" aria-label="Zoom in">+</button>

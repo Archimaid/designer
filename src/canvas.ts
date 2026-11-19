@@ -17,18 +17,22 @@ export interface Snapped {
 }
 
 export type End = 'source' | 'target';
+export type Tool = 'select' | 'hand';
 export type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 export type Side = 'T' | 'R' | 'B' | 'L';
 
 export interface CanvasEvents {
   readonly select: (id: string | null) => void;
+  readonly toggle: (id: string) => void;
+  readonly selectMany: (ids: readonly string[]) => void;
   readonly selectRelationship: (id: string) => void;
   // An end dropped on an element: another element reconnects it, its own element pins the side.
   readonly reconnect: (id: string, end: End, element: string, side: Side) => void;
   readonly snap: (id: string, topLeft: Point) => Snapped;
   readonly snapResize: (id: string, box: Box) => Snapped;
   readonly resize: (id: string, box: Box) => void;
-  readonly move: (id: string, topLeft: Point) => void;
+  // The dragged element leads; the other selected elements follow it by the same distance.
+  readonly move: (lead: string, topLeft: Point, followers: readonly string[]) => void;
   readonly connect: (from: string, to: string, client: Point) => void;
   readonly rename: (id: string) => void;
 }
@@ -52,8 +56,22 @@ type Gesture =
       readonly middle: Point;
       readonly pan: Point;
     }
-  | { readonly kind: 'press'; readonly id: string; readonly start: Point; readonly box: Box }
-  | { readonly kind: 'drag'; readonly id: string; readonly start: Point; readonly box: Box; target: Point }
+  // What a press does when it is released without dragging.
+  | {
+      readonly kind: 'press';
+      readonly id: string;
+      readonly start: Point;
+      readonly release: 'none' | 'toggle' | 'select';
+    }
+  | {
+      readonly kind: 'drag';
+      readonly id: string;
+      readonly start: Point;
+      readonly box: Box;
+      readonly group: readonly { readonly id: string; readonly box: Box }[];
+      target: Point;
+    }
+  | { readonly kind: 'marquee'; readonly start: Point; end: Point; moved: boolean }
   | { readonly kind: 'connect'; readonly from: string; readonly origin: Point }
   | {
       readonly kind: 'resize';
@@ -93,6 +111,15 @@ function pathEnds(path: SVGPathElement): { start: Point; end: Point } | undefine
   const [x2, y2] = numbers.slice(-2);
   if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) return undefined;
   return { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } };
+}
+
+function spanning(from: Point, to: Point): Box {
+  return {
+    x: Math.min(from.x, to.x),
+    y: Math.min(from.y, to.y),
+    width: Math.abs(to.x - from.x),
+    height: Math.abs(to.y - from.y),
+  };
 }
 
 const minimumSide = 20;
@@ -141,8 +168,10 @@ export class DiagramCanvas {
   private scale = 1;
   private gesture: Gesture = { kind: 'none' };
   private readonly pointers = new Map<number, Point>();
-  private selected: string | null = null;
-  private readonly ring = document.createElement('div');
+  private selection: readonly string[] = [];
+  private chosenTool: Tool = 'select';
+  private holdingSpace = false;
+  private readonly marquee = document.createElement('div');
   private readonly ghost = document.createElement('div');
   private readonly line = document.createElementNS(svgNamespace, 'svg');
   private onZoom: (scale: number) => void = () => undefined;
@@ -153,7 +182,7 @@ export class DiagramCanvas {
     private readonly overlay: HTMLElement,
     private readonly events: CanvasEvents,
   ) {
-    this.ring.className = 'ring';
+    this.marquee.className = 'marquee';
     this.ghost.className = 'ghost';
     this.line.setAttribute('class', 'connector-line');
     this.line.innerHTML =
@@ -179,6 +208,21 @@ export class DiagramCanvas {
 
   set zoomListener(listener: (scale: number) => void) {
     this.onZoom = listener;
+  }
+
+  // The select tool draws a selection box on empty canvas; the hand tool, or a held Space, moves the canvas.
+  set tool(tool: Tool) {
+    this.chosenTool = tool;
+    this.root.classList.toggle('is-hand', this.handActive);
+  }
+
+  set spaceHeld(held: boolean) {
+    this.holdingSpace = held;
+    this.root.classList.toggle('is-hand', this.handActive);
+  }
+
+  private get handActive(): boolean {
+    return this.chosenTool === 'hand' || this.holdingSpace;
   }
 
   setSvg(markup: string): void {
@@ -238,21 +282,25 @@ export class DiagramCanvas {
     return this.headers.get(id) ?? 54;
   }
 
-  setSelection(id: string | null): void {
-    this.selected = id;
+  setSelection(ids: readonly string[]): void {
+    this.selection = ids;
     this.selectedRelationship = null;
     this.drawSelection();
   }
 
   setRelationshipSelection(id: string | null): void {
     this.selectedRelationship = id;
-    this.selected = null;
+    this.selection = [];
     this.drawSelection();
   }
 
+  // Handles for connecting and resizing belong to a single selected element only.
+  private get single(): string | null {
+    return this.selection.length === 1 ? (this.selection[0] ?? null) : null;
+  }
+
   private drawSelection(): void {
-    this.ring.remove();
-    for (const handle of this.overlay.querySelectorAll('.handle, .resize-zone')) handle.remove();
+    for (const handle of this.overlay.querySelectorAll('.ring, .handle, .resize-zone')) handle.remove();
     for (const path of this.svg?.querySelectorAll('.is-selected') ?? []) path.classList.remove('is-selected');
     const edge = this.selectedRelationship ? this.edges.get(this.selectedRelationship) : undefined;
     if (edge && this.selectedRelationship) {
@@ -273,16 +321,22 @@ export class DiagramCanvas {
       }
       return;
     }
-    const box = this.selected ? this.boxes.get(this.selected) : undefined;
-    if (!box) return;
     const inset = 6;
-    Object.assign(this.ring.style, {
-      left: `${box.x - inset}px`,
-      top: `${box.y - inset}px`,
-      width: `${box.width + 2 * inset}px`,
-      height: `${box.height + 2 * inset}px`,
-    });
-    this.overlay.append(this.ring);
+    for (const id of this.selection) {
+      const box = this.boxes.get(id);
+      if (!box) continue;
+      const ring = document.createElement('div');
+      ring.className = 'ring';
+      Object.assign(ring.style, {
+        left: `${box.x - inset}px`,
+        top: `${box.y - inset}px`,
+        width: `${box.width + 2 * inset}px`,
+        height: `${box.height + 2 * inset}px`,
+      });
+      this.overlay.append(ring);
+    }
+    const box = this.single ? this.boxes.get(this.single) : undefined;
+    if (!box) return;
     // Edge and corner strips sit under the round connect handles, which win where they overlap.
     // Fingers need larger targets than a mouse pointer.
     const band = matchMedia('(pointer: coarse)').matches ? 20 : 10;
@@ -497,34 +551,75 @@ export class DiagramCanvas {
         ?.classList.add('is-moving');
       this.overlay.append(this.line);
       this.updateLine(this.layoutPoint(client.x, client.y));
-    } else if (target?.closest('.resize-zone') && this.selected && !handle) {
+    } else if (target?.closest('.resize-zone') && this.single && !handle) {
       const zone = target.closest<HTMLElement>('.resize-zone');
       const edge = allEdges.find((candidate) => candidate === zone?.dataset.edge);
-      const box = this.boxes.get(this.selected);
+      const box = this.boxes.get(this.single);
       if (!edge || !box) return;
-      this.gesture = { kind: 'resize', id: this.selected, edge, start: client, box, target: box };
-    } else if (handle && this.selected) {
-      const box = this.boxes.get(this.selected);
-      if (!box) return;
-      this.gesture = { kind: 'connect', from: this.selected, origin: this.layoutPoint(client.x, client.y) };
+      this.gesture = { kind: 'resize', id: this.single, edge, start: client, box, target: box };
+    } else if (handle && this.single) {
+      this.gesture = { kind: 'connect', from: this.single, origin: this.layoutPoint(client.x, client.y) };
       this.overlay.append(this.line);
       this.updateLine(this.layoutPoint(client.x, client.y));
     } else {
-      const id = event.button === 0 ? elementId(target) : undefined;
-      const box = id ? this.boxes.get(id) : undefined;
-      const relationship = event.button === 0 && !id ? relationshipId(target) : undefined;
-      if (id && box && event.pointerType === 'touch' && id !== this.selected) {
-        this.gesture = { kind: 'pan', start: client, pan: this.pan, moved: false, tap: id };
-      } else if (id && box) {
-        this.events.select(id);
-        this.gesture = { kind: 'press', id, start: client, box };
-      } else if (relationship) {
-        this.events.selectRelationship(relationship);
-        this.gesture = { kind: 'none' };
-      } else {
-        this.gesture = { kind: 'pan', start: client, pan: this.pan, moved: false };
-      }
+      this.pressCanvas(event, target, client);
     }
+  }
+
+  private pressCanvas(event: PointerEvent, target: Element | null, client: Point): void {
+    const id = event.button === 0 ? elementId(target) : undefined;
+    const relationship = event.button === 0 && !id ? relationshipId(target) : undefined;
+    const additive = event.shiftKey;
+    const isSelected = id !== undefined && this.selection.includes(id);
+    if (id && this.boxes.has(id)) {
+      // Holding Space moves the canvas even over an element; lifting without moving selects the element.
+      // The hand tool alone leaves elements draggable and only changes what a drag on empty canvas does.
+      if (this.holdingSpace) {
+        this.gesture = { kind: 'pan', start: client, pan: this.pan, moved: false, tap: id };
+      } else if (additive && !isSelected) {
+        this.events.toggle(id);
+        this.gesture = { kind: 'press', id, start: client, release: 'none' };
+      } else if (additive) {
+        this.gesture = { kind: 'press', id, start: client, release: 'toggle' };
+      } else if (isSelected) {
+        // A press on one of several selected elements keeps the group, so it can be dragged together.
+        this.gesture = { kind: 'press', id, start: client, release: this.selection.length > 1 ? 'select' : 'none' };
+      } else {
+        this.events.select(id);
+        this.gesture = { kind: 'press', id, start: client, release: 'none' };
+      }
+    } else if (relationship) {
+      this.events.selectRelationship(relationship);
+      this.gesture = { kind: 'none' };
+    } else if (event.button === 0 && !this.handActive) {
+      const start = this.layoutPoint(client.x, client.y);
+      this.gesture = { kind: 'marquee', start, end: start, moved: false };
+    } else {
+      this.gesture = { kind: 'pan', start: client, pan: this.pan, moved: false };
+    }
+  }
+
+  private drawMarquee(gesture: Extract<Gesture, { kind: 'marquee' }>): void {
+    const area = spanning(gesture.start, gesture.end);
+    Object.assign(this.marquee.style, {
+      left: `${area.x}px`,
+      top: `${area.y}px`,
+      width: `${area.width}px`,
+      height: `${area.height}px`,
+    });
+    if (!this.marquee.isConnected) this.overlay.append(this.marquee);
+  }
+
+  // Only elements wholly inside the box are selected, so a box drawn inside a container leaves the container out.
+  private enclosed(area: Box): string[] {
+    return [...this.boxes].flatMap(([id, box]) =>
+      box.x >= area.x &&
+      box.y >= area.y &&
+      box.x + box.width <= area.x + area.width &&
+      box.y + box.height <= area.y + area.height
+        ? [id]
+        : [],
+    );
   }
 
   private pointerMove(event: PointerEvent): void {
@@ -547,18 +642,34 @@ export class DiagramCanvas {
       }
       case 'press': {
         if (Math.hypot(client.x - gesture.start.x, client.y - gesture.start.y) < dragThreshold) return;
-        this.gesture = { kind: 'drag', id: gesture.id, start: gesture.start, box: gesture.box, target: gesture.box };
-        this.groupOf(gesture.id)?.classList.add('is-dragging');
+        const box = this.boxes.get(gesture.id);
+        if (!box) return;
+        const ids = this.selection.includes(gesture.id) ? this.selection : [gesture.id];
+        const group = ids.flatMap((id) => {
+          const member = this.boxes.get(id);
+          return member ? [{ id, box: member }] : [];
+        });
+        this.gesture = { kind: 'drag', id: gesture.id, start: gesture.start, box, group, target: box };
+        for (const member of group) this.groupOf(member.id)?.classList.add('is-dragging');
         this.pointerMove(event);
         return;
       }
       case 'drag': {
-        gesture.target = {
-          x: gesture.box.x + (client.x - gesture.start.x) / this.scale,
-          y: gesture.box.y + (client.y - gesture.start.y) / this.scale,
-        };
-        this.groupOf(gesture.id)?.setAttribute('transform', `translate(${gesture.target.x} ${gesture.target.y})`);
+        const dx = (client.x - gesture.start.x) / this.scale;
+        const dy = (client.y - gesture.start.y) / this.scale;
+        gesture.target = { x: gesture.box.x + dx, y: gesture.box.y + dy };
+        for (const { id, box } of gesture.group) {
+          this.groupOf(id)?.setAttribute('transform', `translate(${box.x + dx} ${box.y + dy})`);
+        }
         this.showGhost(this.events.snap(gesture.id, gesture.target));
+        return;
+      }
+      case 'marquee': {
+        gesture.end = this.layoutPoint(client.x, client.y);
+        const { width, height } = spanning(gesture.start, gesture.end);
+        if (!gesture.moved && Math.hypot(width, height) * this.scale < dragThreshold) return;
+        gesture.moved = true;
+        this.drawMarquee(gesture);
         return;
       }
       case 'resize': {
@@ -595,7 +706,19 @@ export class DiagramCanvas {
         return;
       case 'drag':
         this.showGhost(null);
-        this.events.move(gesture.id, gesture.target);
+        this.events.move(
+          gesture.id,
+          gesture.target,
+          gesture.group.flatMap(({ id }) => (id === gesture.id ? [] : [id])),
+        );
+        return;
+      case 'marquee':
+        this.marquee.remove();
+        this.events.selectMany(gesture.moved ? this.enclosed(spanning(gesture.start, gesture.end)) : []);
+        return;
+      case 'press':
+        if (gesture.release === 'toggle') this.events.toggle(gesture.id);
+        if (gesture.release === 'select') this.events.select(gesture.id);
         return;
       case 'connect': {
         this.line.remove();
@@ -620,7 +743,6 @@ export class DiagramCanvas {
         }
         return;
       }
-      case 'press':
       case 'none':
         return;
     }
@@ -632,11 +754,14 @@ export class DiagramCanvas {
     this.root.classList.remove('is-panning');
     this.showGhost(null);
     this.line.remove();
+    this.marquee.remove();
     this.markTarget(undefined);
     this.svg?.querySelector('.is-moving')?.classList.remove('is-moving');
     if (gesture.kind === 'drag') {
-      this.groupOf(gesture.id)?.classList.remove('is-dragging');
-      this.groupOf(gesture.id)?.setAttribute('transform', `translate(${gesture.box.x} ${gesture.box.y})`);
+      for (const { id, box } of gesture.group) {
+        this.groupOf(id)?.classList.remove('is-dragging');
+        this.groupOf(id)?.setAttribute('transform', `translate(${box.x} ${box.y})`);
+      }
     }
   }
 
