@@ -92,7 +92,7 @@ export function buildPalette(options: PaletteOptions, target: DropTarget): void 
       const section = document.createElement('div');
       section.style.display = 'flex';
       section.style.flexDirection = 'column';
-      section.style.gap = '6px';
+      section.style.gap = '4px';
       const head = document.createElement('button');
       head.type = 'button';
       head.className = 'group-head';
@@ -106,9 +106,11 @@ export function buildPalette(options: PaletteOptions, target: DropTarget): void 
       count.className = 'group-count';
       count.textContent = open ? '−' : String(group.types.length);
       head.append(name, count);
+      // One layer is open at a time, so the palette fits without scrolling on most screens.
       head.addEventListener('click', () => {
-        if (openGroups.has(group.category)) openGroups.delete(group.category);
-        else openGroups.add(group.category);
+        const wasOpen = openGroups.has(group.category);
+        openGroups.clear();
+        if (!wasOpen) openGroups.add(group.category);
         options.onToggleGroup(openGroups);
         render();
       });

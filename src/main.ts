@@ -679,6 +679,8 @@ function updateTray(): void {
       ? model.elements.filter((element) => !nested.has(element.id) && !positionOf(element.id))
       : [];
   ui.tray.hidden = unplaced.length === 0;
+  // The palette reaches down to the tray, or to the bottom margin when there is nothing unplaced.
+  ui.palette.classList.toggle('above-tray', !ui.tray.hidden);
   for (const element of unplaced) {
     const type = paletteType(element.type);
     const chip = document.createElement('button');
@@ -695,7 +697,7 @@ function updateTray(): void {
 function fit(): void {
   const paletteOpen = !ui.palette.classList.contains('is-hidden');
   canvas.fit({
-    left: paletteOpen ? 316 : 100,
+    left: paletteOpen ? 408 : 100,
     right: textOpen ? 500 : selected || selectedRelationship !== null ? 340 : 40,
     top: 96,
     bottom: 80,
@@ -898,7 +900,7 @@ ui.title.addEventListener('change', () => {
   ui.fileName.textContent = `${fileBase()}.mmd`;
 });
 
-const openGroups = new Set((readStored(groupsKey) ?? 'business,application,technology').split(',').filter(Boolean));
+const openGroups = new Set((readStored(groupsKey) ?? 'business').split(',').filter(Boolean).slice(0, 1));
 buildPalette(
   {
     groups: ui.groups,

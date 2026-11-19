@@ -554,14 +554,18 @@ kbd,
 .palette {
   left: 24px;
   top: 92px;
-  bottom: 112px;
-  width: 268px;
+  bottom: 24px;
+  width: 360px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   padding: 14px;
+  overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-width: thin;
+}
+
+.palette.above-tray {
+  bottom: 112px;
 }
 
 .palette-head {
@@ -629,7 +633,7 @@ kbd,
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 40px;
+  min-height: 36px;
   padding: 0 4px;
   border: 0;
   background: none;
@@ -656,11 +660,12 @@ kbd,
 }
 
 .tile {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 9px;
-  min-height: 44px;
-  padding: 6px 8px;
+  min-height: 40px;
+  padding: 5px 8px;
   border: 0;
   border-radius: 12px;
   background: var(--tile);
@@ -1157,7 +1162,7 @@ textarea.input {
 .tray {
   left: 24px;
   bottom: 24px;
-  width: 268px;
+  width: 360px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1355,6 +1360,54 @@ textarea.input {
   color: var(--white);
   font-weight: 600;
   cursor: pointer;
+}
+
+/* Scrollbars: thin and rounded, in each panel's own colours, on light panels and in the dark text panel. */
+
+.palette,
+.inspector {
+  scrollbar-width: thin;
+  scrollbar-color: var(--dots) transparent;
+}
+
+.editor .cm-scroller {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a4a transparent;
+}
+
+.palette::-webkit-scrollbar,
+.inspector::-webkit-scrollbar,
+.editor .cm-scroller::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.palette::-webkit-scrollbar-track,
+.inspector::-webkit-scrollbar-track {
+  margin: 14px 0;
+  background: transparent;
+}
+
+.palette::-webkit-scrollbar-thumb,
+.inspector::-webkit-scrollbar-thumb {
+  border: 3px solid var(--white);
+  border-radius: 999px;
+  background: var(--dots);
+}
+
+.editor .cm-scroller::-webkit-scrollbar-track,
+.editor .cm-scroller::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.editor .cm-scroller::-webkit-scrollbar-thumb {
+  border: 3px solid var(--code-bg);
+  border-radius: 999px;
+  background: #3a3a4a;
+}
+
+.editor .cm-scroller::-webkit-scrollbar-thumb:hover {
+  background: #4d4d60;
 }
 
 @media (max-width: 1180px) {
