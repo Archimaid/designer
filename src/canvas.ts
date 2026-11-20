@@ -30,10 +30,12 @@ const dragThreshold = 4;
 const easeMs = 320;
 const svgNamespace = 'http://www.w3.org/2000/svg';
 
+type Tap = { readonly kind: 'element' | 'relationship'; readonly id: string };
+
 type Gesture =
   | { readonly kind: 'none' }
-  // On touch, a finger on an unselected element pans; lifting it without moving selects the element.
-  | { readonly kind: 'pan'; readonly start: Point; readonly pan: Point; moved: boolean; readonly tap?: string }
+  // On touch, a finger on an unselected element pans; lifting it without moving selects what it touched.
+  | { readonly kind: 'pan'; readonly start: Point; readonly pan: Point; moved: boolean; readonly tap?: Tap | undefined }
   | {
       readonly kind: 'pinch';
       readonly distance: number;
@@ -166,6 +168,7 @@ export class DiagramCanvas {
   private selection: readonly string[] = [];
   private chosenTool: Tool = 'select';
   private holdingSpace = false;
+  private locked = false;
   private readonly marquee = document.createElement('div');
   private readonly ghost = document.createElement('div');
   private readonly line = document.createElementNS(svgNamespace, 'svg');
@@ -190,6 +193,7 @@ export class DiagramCanvas {
       this.cancelGesture();
     });
     root.addEventListener('dblclick', (event) => {
+      if (this.locked) return;
       const id = itemId(event.target);
       if (id) events.rename(id);
     });
@@ -217,7 +221,23 @@ export class DiagramCanvas {
   }
 
   private get handActive(): boolean {
-    return this.chosenTool === 'hand' || this.holdingSpace;
+    return this.locked || this.chosenTool === 'hand' || this.holdingSpace;
+  }
+
+  // A read-only canvas pans and zooms, and every drag on it moves the view rather than the diagram. A tap
+  // still selects, so details can be read, but the selection offers no handles to change anything.
+  set readOnly(locked: boolean) {
+    this.locked = locked;
+    this.cancelGesture();
+    this.root.classList.toggle('is-hand', this.handActive);
+    this.drawSelection();
+  }
+
+  private tapOn(target: Element | null): Tap | undefined {
+    const id = itemId(target);
+    if (id && this.boxes.has(id)) return { kind: 'element', id };
+    const relationship = relationshipId(target);
+    return relationship ? { kind: 'relationship', id: relationship } : undefined;
   }
 
   setSvg(markup: string): void {
@@ -305,6 +325,7 @@ export class DiagramCanvas {
       this.svg
         ?.querySelector(`path[data-archimate-relationship="${CSS.escape(this.selectedRelationship)}"]`)
         ?.classList.add('is-selected');
+      if (this.locked) return;
       for (const [end, point] of [
         ['source', edge.start],
         ['target', edge.end],
@@ -333,6 +354,7 @@ export class DiagramCanvas {
       });
       this.overlay.append(ring);
     }
+    if (this.locked) return;
     const box = this.single && !this.notes.has(this.single) ? this.boxes.get(this.single) : undefined;
     if (!box) return;
     // Edge and corner strips sit under the round connect handles, which win where they overlap.
@@ -559,6 +581,10 @@ export class DiagramCanvas {
     }
     if (this.pointers.size > 2) return;
     const target = event.target instanceof Element ? event.target : null;
+    if (this.locked) {
+      this.gesture = { kind: 'pan', start: client, pan: this.pan, moved: false, tap: this.tapOn(target) };
+      return;
+    }
     const handle = target?.closest('.handle');
     const end = handle instanceof HTMLElement ? handle.dataset.end : undefined;
     const edge = this.selectedRelationship ? this.edges.get(this.selectedRelationship) : undefined;
@@ -595,7 +621,7 @@ export class DiagramCanvas {
       // Holding Space moves the canvas even over an element; lifting without moving selects the element.
       // The hand tool alone leaves elements draggable and only changes what a drag on empty canvas does.
       if (this.holdingSpace) {
-        this.gesture = { kind: 'pan', start: client, pan: this.pan, moved: false, tap: id };
+        this.gesture = { kind: 'pan', start: client, pan: this.pan, moved: false, tap: { kind: 'element', id } };
       } else if (additive && !isSelected) {
         this.events.toggle(id);
         this.gesture = { kind: 'press', id, start: client, release: 'none' };
@@ -720,7 +746,9 @@ export class DiagramCanvas {
     if (this.root.hasPointerCapture(event.pointerId)) this.root.releasePointerCapture(event.pointerId);
     switch (gesture.kind) {
       case 'pan':
-        if (!gesture.moved) this.events.select(gesture.tap ?? null);
+        if (gesture.moved) return;
+        if (gesture.tap?.kind === 'relationship') this.events.selectRelationship(gesture.tap.id);
+        else this.events.select(gesture.tap?.id ?? null);
         return;
       case 'pinch':
         return;

@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://design.archimaid.org/sitemap.xml
+Sitemap: https://try.archimaid.org/sitemap.xml

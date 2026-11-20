@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-const origin = 'https://design.archimaid.org';
+const origin = 'https://try.archimaid.org';
 const root = new URL('../', import.meta.url);
 const html = readFileSync(new URL('index.html', root), 'utf8');
 const publicFile = (path: string): URL => new URL(`public${new URL(path, origin).pathname}`, root);
