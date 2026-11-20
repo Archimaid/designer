@@ -63,6 +63,7 @@ import {
   type GridPoint,
   type GridSize,
 } from './source.ts';
+import { STAR_REQUEST_MS, starRequest } from './star-request.ts';
 import { readStored, writeStored } from './storage.ts';
 
 const sourceKey = 'archimaid.designer.source';
@@ -568,9 +569,14 @@ function setCollapsed(collapsed: boolean): void {
 }
 
 function runExport(kind: string): void {
-  exportDiagram(kind, source, lastSvg, fileBaseOf(ui.title.value)).catch((error: unknown) => {
-    showToast(error instanceof Error ? error.message : 'Export failed.');
-  });
+  exportDiagram(kind, source, lastSvg, fileBaseOf(ui.title.value))
+    .then((downloaded) => {
+      const ask = downloaded ? starRequest() : undefined;
+      if (ask) showToast('Exported. Enjoying Archimaid?', ask, STAR_REQUEST_MS);
+    })
+    .catch((error: unknown) => {
+      showToast(error instanceof Error ? error.message : 'Export failed.');
+    });
 }
 
 // Wiring
@@ -733,7 +739,10 @@ for (const item of ui.exportMenu.querySelectorAll<HTMLButtonElement>('[data-expo
 ui.share.addEventListener('click', async () => {
   const link = await shareLink(source);
   history.replaceState(null, '', link);
-  showToast((await copyText(link)) ? 'Link copied' : 'Link is in the address bar');
+  const result = (await copyText(link)) ? 'Link copied' : 'Link is in the address bar';
+  const ask = starRequest();
+  if (ask) showToast(`${result}. Enjoying Archimaid?`, ask, STAR_REQUEST_MS);
+  else showToast(result);
 });
 
 installCopyButton(() => source);
