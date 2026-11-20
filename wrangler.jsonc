@@ -1,4 +1,4 @@
-// Cloudflare Workers deploy for design.archimaid.org. Build first (`npm ci && npm run build`),
+// Cloudflare Workers deploy for try.archimaid.org. Build first (`npm ci && npm run build`),
 // then `npx wrangler deploy` uploads dist. The name must match the Worker connected in Cloudflare.
 {
   "name": "archimaid-designer",

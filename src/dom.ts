@@ -6,6 +6,16 @@ export function byId<T extends HTMLElement>(id: string): T {
   return element as T;
 }
 
+// Keys and pastes belong to a focused field or the text editor, not to the canvas.
+export function isTyping(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
+      !!target.closest('.cm-editor'))
+  );
+}
+
 // One button of a group is pressed, or none when nothing matches.
 export function pressOnly(buttons: readonly HTMLElement[], pressed: HTMLElement | undefined): void {
   for (const button of buttons) button.setAttribute('aria-pressed', String(button === pressed));

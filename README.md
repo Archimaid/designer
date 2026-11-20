@@ -1,11 +1,14 @@
 # Archimaid Designer
 
-Draw ArchiMate® 3.2 diagrams by dragging elements onto a canvas, and watch [Archimaid](https://archimaid.org) write the plain text. Planned for design.archimaid.org, next to the [playground](https://try.archimaid.org).
+Draw ArchiMate® 3.2 diagrams by dragging elements onto a canvas, and watch [Archimaid](https://archimaid.org) write the plain text, or open a `.mmd` file and look at it. Runs at [try.archimaid.org](https://try.archimaid.org), which replaces the playground; design.archimaid.org redirects there.
 
 The text is the only document state. Every gesture is a small edit to the `archimate-beta` source, so the text panel, undo, share links and the renderer always agree, and the result works anywhere Archimaid does.
 
 ## What you can do
 
+The bottom bar switches between three modes. View only looks: the canvas pans and zooms, nothing on it can change, and clicking an element or relationship shows its details read-only. Design builds on the canvas. Code shows the text beside the canvas. A share link opens in View; `?mode=view`, `?mode=design` or `?mode=code` in the address picks a mode.
+
+- Open a diagram from New, open or example (the arrow beside the name), drop a `.mmd` file anywhere on the page, or paste its text with ⌘V outside the text fields. An empty diagram in View mode offers the same choices.
 - Drag an element type from the palette onto the canvas and type its name. The ID follows the name until you change it yourself.
 - Drag elements to move them. In custom layout this writes `id at x y` in the `positions` block; in auto layout the first move pins every element where it is and switches to custom layout.
 - Drag the edges or corners of a selected element to resize it, which writes `size WxH`; the round handles in the middle of each edge start a relationship instead. An element never shrinks below the size its name needs.
@@ -16,9 +19,9 @@ The text is the only document state. Every gesture is a small edit to the `archi
 - Delete with the Delete key, rename with Enter or a double-click, undo with ⌘Z.
 - Open the text panel to read or edit the source. Lines the canvas just wrote are highlighted.
 - Elements without a position wait in the Unplaced tray until you drag them in.
-- Export SVG, PNG or `.mmd`, share a link, or open the diagram in the playground.
+- Export SVG, PNG or `.mmd`, or share a link.
 
-On a phone the canvas fills the screen with a Canvas | Text switch at the top. Tap Add element and then a type to place it in the middle of the view. Tap an element to select it, which opens a short action bar; Details opens its name and description in a full-width sheet. One finger pans, two fingers zoom, and a selected element can be dragged, resized or connected from its larger handles.
+On a phone the canvas fills the screen with a Canvas | Text switch at the top. View mode swaps both for an Edit diagram button. Tap Add element and then a type to place it in the middle of the view. Tap an element to select it, which opens a short action bar; Details opens its name and description in a full-width sheet. One finger pans, two fingers zoom, and a selected element can be dragged, resized or connected from its larger handles.
 
 Nesting new elements inside containers and moving elements between containers are not built yet; edit the text for those. Long-form relationships keep their type; change it in the text.
 
@@ -49,7 +52,7 @@ The designer deploys as a Cloudflare Worker that serves static files, like the p
 | Deploy command        | `npx wrangler deploy`      |
 | Environment variable  | `NODE_VERSION=24`          |
 
-Then add `design.archimaid.org` as a custom domain.
+Then add `try.archimaid.org` as a custom domain, and redirect `design.archimaid.org` to it with a redirect rule that keeps the path and query; browsers carry the `#code=` hash of share links across the redirect.
 
 ## Licence
 

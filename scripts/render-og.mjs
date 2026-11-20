@@ -113,7 +113,7 @@ function socialPreviewPage(diagram) {
       <h1>Draw the architecture.<br><mark>Get&nbsp;the&nbsp;text.</mark></h1>
       <p>Drag ArchiMate® elements onto a canvas, and Archimaid writes the plain text. Nothing leaves your browser.</p>
     </div>
-    <div class="footer"><span class="pill">design.archimaid.org</span><span class="pill">Free · open source</span></div>
+    <div class="footer"><span class="pill">try.archimaid.org</span><span class="pill">Free · open source</span></div>
     <div class="panel canvas"><div class="diagram">${diagram}</div></div>
     <div class="panel palette"><span class="title">Elements</span>${tiles}</div>
     <div class="panel code">

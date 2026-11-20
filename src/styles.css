@@ -1526,7 +1526,9 @@ textarea.input {
      Panels fade and slide rather than vanish, so switching modes crossfades the palette and the text. */
   body:not(.code-mode) .drawer,
   body.code-mode .palette,
-  body.code-mode .rail {
+  body.code-mode .rail,
+  body.view-mode .palette,
+  body.view-mode .rail {
     opacity: 0;
     pointer-events: none;
     visibility: hidden;
@@ -1558,6 +1560,124 @@ textarea.input {
     outline: none;
     box-shadow: inset -3px 0 0 var(--focus);
   }
+}
+
+/* View mode only looks, so every control that edits steps aside. */
+
+body.view-mode #undo,
+body.view-mode #redo,
+body.view-mode #clear,
+body.view-mode .tools,
+body.view-mode .layouts,
+body.view-mode .tray,
+body.view-mode #m-undo,
+body.view-mode #m-clear,
+body.view-mode [data-more='auto'],
+body.view-mode [data-more='custom'],
+body.view-mode [data-more='redo'],
+body.view-mode .inspector-foot,
+body.view-mode #rel-retype,
+body.view-mode #bar-rename,
+body.view-mode #bar-delete {
+  display: none !important;
+}
+
+/* Read-only fields read as text rather than inviting a click. */
+body.view-mode .inspector .input[readonly] {
+  border-color: transparent;
+  background: var(--fill);
+  box-shadow: none;
+  cursor: text;
+}
+
+/* An empty diagram in View mode asks for one: a file, a paste or an example. */
+.empty-state {
+  display: none;
+  left: 50%;
+  top: 50%;
+  width: min(420px, calc(100% - 32px));
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 24px 20px;
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+
+body.view-mode.is-empty .empty-state {
+  display: flex;
+}
+
+.empty-art {
+  width: 56px;
+  height: 56px;
+}
+
+.empty-state h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.empty-state p {
+  margin: 0;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+.empty-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.text-btn {
+  padding: 6px;
+  border: 0;
+  background: none;
+  color: var(--ink-muted);
+  font-size: 14px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.text-btn:hover {
+  color: var(--ink);
+}
+
+/* Shown while a file is dragged over the window; the window itself takes the drop. */
+.drop-zone {
+  position: fixed;
+  inset: 12px;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  border: 3px dashed var(--focus);
+  border-radius: 24px;
+  background: rgba(251, 250, 246, 0.86);
+  pointer-events: none;
+  transition:
+    opacity 0.15s ease,
+    visibility 0s linear 0s;
+}
+
+.drop-zone.is-hidden {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.15s ease,
+    visibility 0s linear 0.15s;
+}
+
+.drop-zone p {
+  margin: 0;
+  padding: 14px 22px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--white);
+  box-shadow: 6px 6px 0 var(--ink);
+  font-size: 18px;
+  font-weight: 600;
 }
 
 /* Canvas furniture */
@@ -2332,6 +2452,13 @@ textarea.input {
 
   body.has-sheet .fab,
   body.has-sheet .bottom-bar {
+    display: none !important;
+  }
+
+  /* View mode on a phone has no Canvas | Text tabs and no Add element; Edit diagram leads to Design. */
+  body:not(.view-mode) .view-edit,
+  body.view-mode #add-open,
+  body.view-mode .view-tabs {
     display: none !important;
   }
 

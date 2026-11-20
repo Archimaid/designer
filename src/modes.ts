@@ -2,9 +2,13 @@ import { pressOnly } from './dom.ts';
 import { readStored, writeStored } from './storage.ts';
 import { ui } from './ui.ts';
 
-// Design mode builds on the canvas with the text out of sight; Code mode keeps the text docked beside the
-// canvas. Phones show the text on their Text tab instead, in either mode.
-export type Mode = 'design' | 'code';
+// View mode only looks: the canvas pans and zooms but nothing on it can change. Design mode builds on the
+// canvas with the text out of sight; Code mode keeps the text docked beside the canvas. Phones show the text
+// on their Text tab instead, in Design and Code mode.
+export type Mode = 'view' | 'design' | 'code';
+
+const modes: readonly Mode[] = ['view', 'design', 'code'];
+const isMode = (value: string | null): value is Mode => modes.some((known) => known === value);
 
 const modeKey = 'archimaid.designer.mode';
 let mode: Mode = 'design';
@@ -19,20 +23,29 @@ export function isTextOpen(): boolean {
   return textOpen;
 }
 
-// The address wins over the last mode used, so a link can open straight into Code mode.
-export function readMode(): Mode {
-  const requested = new URLSearchParams(location.search).get('mode') ?? readStored(modeKey);
-  return requested === 'code' ? 'code' : 'design';
+// The address wins, so a link can open straight into a mode. A shared diagram opens to be looked at, and
+// otherwise the last mode used comes back.
+export function readMode(shared: boolean): Mode {
+  const requested = new URLSearchParams(location.search).get('mode');
+  if (isMode(requested)) return requested;
+  if (shared) return 'view';
+  const stored = readStored(modeKey);
+  return isMode(stored) ? stored : 'design';
+}
+
+function buttonFor(which: Mode): HTMLButtonElement {
+  return { view: ui.modeView, design: ui.modeDesign, code: ui.modeCode }[which];
 }
 
 export function setMode(next: Mode): void {
   mode = next;
+  document.body.classList.toggle('view-mode', next === 'view');
   document.body.classList.toggle('code-mode', next === 'code');
-  pressOnly([ui.modeDesign, ui.modeCode], next === 'code' ? ui.modeCode : ui.modeDesign);
+  pressOnly(modes.map(buttonFor), buttonFor(next));
   writeStored(modeKey, next);
   const url = new URL(location.href);
-  if (next === 'code') url.searchParams.set('mode', 'code');
-  else url.searchParams.delete('mode');
+  if (next === 'design') url.searchParams.delete('mode');
+  else url.searchParams.set('mode', next);
   history.replaceState(null, '', url);
   setTextOpen(next === 'code');
   placeModePill();
@@ -62,13 +75,12 @@ export function noteUnseenChange(): void {
 
 // The pill under the pressed mode follows its button, also when fonts load or a badge changes its width.
 function placeModePill(): void {
-  const pressed = mode === 'code' ? ui.modeCode : ui.modeDesign;
+  const pressed = buttonFor(mode);
   ui.modes.style.setProperty('--pill-x', `${pressed.offsetLeft}px`);
   ui.modes.style.setProperty('--pill-width', `${pressed.offsetWidth}px`);
 }
 
 const pillObserver = new ResizeObserver(placeModePill);
-pillObserver.observe(ui.modeDesign);
-pillObserver.observe(ui.modeCode);
+for (const button of modes.map(buttonFor)) pillObserver.observe(button);
 // The first placement must not slide in from the left edge.
 requestAnimationFrame(() => requestAnimationFrame(() => ui.modes.classList.add('is-ready')));

@@ -7,7 +7,7 @@ import { validateArchiMate, type ArchiMateDiagnostic, type ArchiMateModel } from
 import { DiagramCanvas, type End, type Tool } from './canvas.ts';
 import { gridUnit, type Point, type Side } from './geometry.ts';
 import { notePaletteType, paletteType, tileIcon } from './catalogue.ts';
-import { confirmTwice, createDropdown, pressOnly } from './dom.ts';
+import { confirmTwice, createDropdown, isTyping, pressOnly } from './dom.ts';
 import { plural, sideNames } from './format.ts';
 import { renderElementInspector, renderRelationshipInspector, renderSelectionBar } from './inspector.ts';
 import { changedLineNumbers, History } from './history.ts';
@@ -37,6 +37,7 @@ import { closePicker, openPicker } from './picker.ts';
 import { renderDiagram } from './render.ts';
 import { installTooltips } from './tooltip.ts';
 import { decodeShareHash, shareLink } from './share.ts';
+import { installImport } from './import.ts';
 import {
   addElement,
   addNote,
@@ -508,8 +509,14 @@ function updateChrome(): void {
   ui.undo.disabled = !edits.canUndo;
   ui.redo.disabled = !edits.canRedo;
   const empty = clearDiagram(source) === source;
+  document.body.classList.toggle('is-empty', isBlank());
   ui.clear.disabled = empty;
   ui.mClear.disabled = empty;
+}
+
+// Nothing to look at, which is when View mode asks for a diagram and a stray paste deserves an explanation.
+function isBlank(): boolean {
+  return !model?.elements.length;
 }
 
 function updateTray(): void {
@@ -544,7 +551,7 @@ function fit(animate = false): void {
   const inspectorOpen = selected !== null || selectedRelationship !== null;
   canvas.fit(
     {
-      left: currentMode() === 'code' ? codeWidth() + 48 : paletteOpen ? 408 : 100,
+      left: { view: 40, code: codeWidth() + 48, design: paletteOpen ? 408 : 100 }[currentMode()],
       right: inspectorOpen ? 340 : 40,
       top: 96,
       bottom: 80,
@@ -568,16 +575,11 @@ function runExport(kind: string): void {
 
 // Wiring
 
-function isTyping(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    (target.isContentEditable ||
-      ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
-      !!target.closest('.cm-editor'))
-  );
-}
-
 document.addEventListener('keydown', (event) => {
+  if (currentMode() === 'view') {
+    if (event.key === 'Escape') select(null);
+    return;
+  }
   const command = event.metaKey || event.ctrlKey;
   if (command && event.key.toLowerCase() === 'z' && !isTyping(event.target)) {
     event.preventDefault();
@@ -778,6 +780,11 @@ ui.exampleItems.replaceChildren(
 );
 ui.newDiagram.addEventListener('click', () => openDiagram(blankSource, blankTitle, 'Started a new diagram'));
 createDropdown(ui.examplesToggle, ui.examplesMenu);
+ui.emptyExamples.addEventListener('click', () => ui.examplesToggle.click());
+installImport({
+  open: (next, title) => openDiagram(next, title, `Opened “${title}”`),
+  expectsPaste: () => currentMode() === 'view' || isBlank(),
+});
 
 const openGroups = new Set((readStored(groupsKey) ?? 'business').split(',').filter(Boolean).slice(0, 1));
 buildPalette(
@@ -827,12 +834,25 @@ window.addEventListener('blur', () => {
   canvas.spaceHeld = false;
 });
 
+// View mode still selects, so names, descriptions and relationships can be read, but its fields only show.
+function applyMode(next: Mode): void {
+  const viewing = next === 'view';
+  if (viewing) select(null);
+  for (const field of [ui.fieldName, ui.fieldDescription, ui.relLabel]) field.readOnly = viewing;
+  ui.fieldDescription.placeholder = viewing ? 'No description' : '';
+  ui.relLabel.placeholder = viewing ? 'No label' : 'Optional';
+  canvas.readOnly = viewing;
+  setMode(next);
+}
+
 function switchMode(next: Mode): void {
   if (currentMode() === next) return;
-  setMode(next);
+  applyMode(next);
   fit(true);
 }
 
+ui.modeView.addEventListener('click', () => switchMode('view'));
+ui.viewEdit.addEventListener('click', () => switchMode('design'));
 ui.modeDesign.addEventListener('click', () => switchMode('design'));
 ui.modeCode.addEventListener('click', () => switchMode('code'));
 
@@ -842,11 +862,11 @@ ui.notationShorthand.addEventListener('click', () => selectNotation('shorthand')
 installTooltips();
 
 async function start(): Promise<void> {
-  setMode(readMode());
+  const shared = await decodeShareHash(location.hash);
+  applyMode(readMode(shared.kind === 'source'));
   ui.title.value = readStored(titleKey) ?? starterExample.title;
   ui.fileName.textContent = `${fileBaseOf(ui.title.value)}.mmd`;
   setCollapsed(readStored(collapsedKey) === '1');
-  const shared = await decodeShareHash(location.hash);
   source = shared.kind === 'source' ? shared.source : (readStored(sourceKey) ?? starterExample.source);
   if (shared.kind === 'invalid') showToast('That share link is damaged, so your last diagram opened instead.');
   showStorageState(shared.kind === 'source' ? 'shared' : 'saved');

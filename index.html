@@ -15,7 +15,7 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <link rel="sitemap" href="/sitemap.xml" />
-    <link rel="canonical" href="https://design.archimaid.org/" />
+    <link rel="canonical" href="https://try.archimaid.org/" />
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Archimaid" />
@@ -25,8 +25,8 @@
       property="og:description"
       content="Drag elements onto a canvas, name them and connect them, and Archimaid writes the plain text. Free, open source, and nothing leaves your browser."
     />
-    <meta property="og:url" content="https://design.archimaid.org/" />
-    <meta property="og:image" content="https://design.archimaid.org/og.png" />
+    <meta property="og:url" content="https://try.archimaid.org/" />
+    <meta property="og:image" content="https://try.archimaid.org/og.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -44,11 +44,11 @@
       {
         "@context": "https://schema.org",
         "@type": "WebApplication",
-        "@id": "https://design.archimaid.org/#webapp",
+        "@id": "https://try.archimaid.org/#webapp",
         "name": "Archimaid Designer",
-        "url": "https://design.archimaid.org/",
+        "url": "https://try.archimaid.org/",
         "description": "Draw ArchiMate® 3.2 diagrams on a canvas and get them as plain Archimaid text, in your browser.",
-        "image": "https://design.archimaid.org/og.png",
+        "image": "https://try.archimaid.org/og.png",
         "inLanguage": "en-GB",
         "applicationCategory": "DesignApplication",
         "operatingSystem": "Any",
@@ -72,6 +72,27 @@
       </div>
     </div>
 
+    <input class="visually-hidden" type="file" id="file-input" accept=".mmd,.mermaid,.txt,text/plain" tabindex="-1" />
+
+    <section class="float empty-state" id="empty-state" aria-labelledby="empty-title">
+      <svg class="empty-art" viewBox="0 0 120 120" aria-hidden="true">
+        <rect x="34" y="14" width="74" height="26" rx="9" fill="#faf087" stroke="#17171c" stroke-width="5" />
+        <rect x="23" y="47" width="74" height="26" rx="9" fill="#b8e7fc" stroke="#17171c" stroke-width="5" />
+        <rect x="12" y="80" width="74" height="26" rx="9" fill="#d6f8b8" stroke="#17171c" stroke-width="5" />
+      </svg>
+      <h2 id="empty-title">Open a diagram</h2>
+      <p>Drop a <code>.mmd</code> file anywhere, paste its text with <kbd>⌘V</kbd>, or choose a file.</p>
+      <div class="empty-actions">
+        <button class="btn btn-dark" type="button" id="empty-choose">Choose file</button>
+        <button class="btn" type="button" id="empty-paste">Paste</button>
+      </div>
+      <button class="text-btn" type="button" id="empty-examples">or look at an example</button>
+    </section>
+
+    <div class="drop-zone is-hidden" id="drop-zone" aria-hidden="true">
+      <p>Drop the <code>.mmd</code> file to open it</p>
+    </div>
+
     <header class="float topbar appear">
       <a class="brand" href="https://archimaid.org">
         <svg width="30" height="30" viewBox="0 0 120 120" aria-hidden="true">
@@ -91,18 +112,26 @@
             class="icon-btn small"
             type="button"
             id="examples-toggle"
-            aria-label="New diagram or example"
+            aria-label="New, open or example"
             aria-haspopup="menu"
             aria-expanded="false"
             aria-controls="examples-menu"
-            data-tip="New diagram or example"
+            data-tip="New diagram, open a file or an example"
           >
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
           </button>
-          <div class="menu panel-anim is-hidden" id="examples-menu" role="menu" aria-label="New diagram or example">
+          <div class="menu panel-anim is-hidden" id="examples-menu" role="menu" aria-label="New, open or example">
             <button type="button" role="menuitem" id="new-diagram">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               New diagram
+            </button>
+            <button type="button" role="menuitem" id="open-file">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 15V4" />
+                <path d="m7 9 5-5 5 5" />
+                <path d="M5 20h14" />
+              </svg>
+              Open .mmd file…
             </button>
             <p class="menu-label" role="presentation">Examples</p>
             <div id="example-items" role="none"></div>
@@ -157,6 +186,11 @@
         <path d="M12 5v14M5 12h14" />
       </svg>
       Add element
+    </button>
+
+    <button class="float fab view-edit mobile-only" type="button" id="view-edit">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l11-11-4-4L4 16z" /></svg>
+      Edit diagram
     </button>
 
     <div class="scrim" id="scrim" hidden></div>
@@ -482,6 +516,14 @@
         <button class="fit" type="button" id="zoom-fit" data-tip="Fit the whole diagram in view">Fit</button>
       </div>
       <div class="bar-group modes" id="modes" role="group" aria-label="Mode">
+        <button
+          type="button"
+          id="mode-view"
+          aria-pressed="false"
+          data-tip="View: look around without changing anything"
+        >
+          View
+        </button>
         <button type="button" id="mode-design" aria-pressed="true" data-tip="Design: build on the canvas">
           Design
         </button>
