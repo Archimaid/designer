@@ -69,13 +69,20 @@ export function fileBaseOf(title: string): string {
 }
 
 // The text needs no drawing; the images need the last diagram that rendered.
-export async function exportDiagram(kind: string, text: string, svg: string | undefined, base: string): Promise<void> {
+// Resolves to whether a file was downloaded: there is no image to export until the diagram has rendered.
+export async function exportDiagram(
+  kind: string,
+  text: string,
+  svg: string | undefined,
+  base: string,
+): Promise<boolean> {
   if (kind === 'mmd') {
     downloadBlob(new Blob([text], { type: 'text/plain' }), `${base}.mmd`);
-    return;
+    return true;
   }
-  if (!svg) return;
+  if (!svg) return false;
   const prepared = prepareSvg(svg);
   if (kind === 'svg') downloadBlob(new Blob([prepared.source], { type: 'image/svg+xml' }), `${base}.svg`);
   else downloadBlob(await renderPng(prepared), `${base}.png`);
+  return true;
 }
