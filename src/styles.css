@@ -1645,6 +1645,53 @@ body.view-mode.is-empty .empty-state {
   color: var(--ink);
 }
 
+/* An empty Design canvas only suggests a start; clicks and drops pass through to the canvas. */
+.canvas-hint {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  display: none;
+  width: min(360px, calc(100% - 48px));
+  margin: 0;
+  padding: 20px 24px;
+  border: 2px dashed var(--dots);
+  border-radius: 20px;
+  background: rgba(242, 241, 235, 0.8);
+  color: var(--ink-faint);
+  font-size: 15px;
+  line-height: 1.5;
+  text-align: center;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+body.is-empty:not(.view-mode, .code-mode) .canvas-hint {
+  display: block;
+}
+
+.hint-phone {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .hint-wide {
+    display: none;
+  }
+
+  .hint-phone {
+    display: inline;
+  }
+}
+
+/* The open palette covers the left 408px, so the hint centres on the canvas that is left. */
+@media (min-width: 761px) {
+  body:has(.palette:not(.is-hidden)) .canvas-hint {
+    left: calc(50% + 204px);
+    width: min(360px, calc(100% - 456px));
+  }
+}
+
 /* Shown while a file is dragged over the window; the window itself takes the drop. */
 .drop-zone {
   position: fixed;
