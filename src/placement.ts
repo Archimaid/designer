@@ -1,5 +1,5 @@
 import type { ArchiMateModel } from 'archimaid/language';
-import { gridUnit, layoutPadding, type Box, type Point, type Snapped } from './geometry.ts';
+import { defaultItemSize, gridUnit, layoutPadding, type Box, type Point, type Snapped } from './geometry.ts';
 import { parentsOf, positionOf, topLevelIds } from './model.ts';
 import {
   setLayout,
@@ -63,8 +63,8 @@ export function snapMove(placement: Placement, id: string, topLeft: Point): Snap
     box: {
       x: origin.x + grid.x * gridUnit,
       y: origin.y + grid.y * gridUnit,
-      width: box?.width ?? 140,
-      height: box?.height ?? 60,
+      width: box?.width ?? defaultItemSize.width,
+      height: box?.height ?? defaultItemSize.height,
     },
     label: grid.x < 0 || grid.y < 0 ? 'Moves the others to make room' : `${id} at ${grid.x} ${grid.y}`,
   };

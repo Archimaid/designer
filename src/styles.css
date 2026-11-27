@@ -345,6 +345,16 @@ kbd,
   overflow: visible;
 }
 
+.connector-line line {
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+
+.connector-line circle {
+  fill: var(--focus);
+}
+
 .rename.rename-note {
   padding: 8px 10px;
   line-height: 1.35;

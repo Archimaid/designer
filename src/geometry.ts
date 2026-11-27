@@ -16,9 +16,12 @@ export interface Snapped {
   readonly label: string;
 }
 
-// The sides of an element in the T/R/B/L letters of the positions block.
-export type Side = 'T' | 'R' | 'B' | 'L';
-
 // The renderer leaves this margin around a custom layout before the first grid line.
 export const layoutPadding = 24;
 export const gridUnit = 20;
+
+// The renderer's smallest container header, which is where a container's content area starts at the least.
+export const minimumHeaderHeight = 54;
+
+// The size the canvas assumes for an item it has not drawn yet, such as one just dropped from the palette.
+export const defaultItemSize = { width: 140, height: 60 } as const;

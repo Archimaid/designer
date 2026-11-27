@@ -1,9 +1,5 @@
-import {
-  relationshipConnectors,
-  type ArchiMateModel,
-  type ArchiMatePosition,
-  type ArchiMateRelationship,
-} from 'archimaid/language';
+import type { ArchiMateModel, ArchiMatePosition, ArchiMateRelationship } from 'archimaid/language';
+import { connectorFor } from './grammar.ts';
 
 // Questions about the last valid model. They take the model as it may still be missing while the text is invalid.
 
@@ -39,14 +35,5 @@ export function topLevelIds(model: ArchiMateModel | undefined): Set<string> {
 
 // The shorthand connector that writes this relationship, or its type when no connector does.
 export function glyphOf(relationship: ArchiMateRelationship): string {
-  const found = Object.entries(relationshipConnectors).find(([, notation]) => {
-    const access = 'access' in notation ? notation.access : undefined;
-    const directed = 'directed' in notation && notation.directed;
-    return (
-      notation.type === relationship.type &&
-      (access ?? 'unspecified') === (relationship.access ?? 'unspecified') &&
-      directed === (relationship.directed ?? false)
-    );
-  });
-  return found?.[0] ?? relationship.type;
+  return connectorFor(relationship.type, relationship.access, relationship.directed ?? false) ?? relationship.type;
 }

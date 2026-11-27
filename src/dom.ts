@@ -1,4 +1,17 @@
+import type { Box } from './geometry.ts';
+
 // Small pieces of behaviour that several controls share.
+
+export const svgNamespace = 'http://www.w3.org/2000/svg';
+
+// Fingers need larger targets than a mouse pointer, and have no scroll wheel.
+export function isCoarsePointer(): boolean {
+  return matchMedia('(pointer: coarse)').matches;
+}
+
+export function placeBox(element: HTMLElement, { x, y, width, height }: Box): void {
+  Object.assign(element.style, { left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px` });
+}
 
 export function byId<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);

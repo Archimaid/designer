@@ -1,9 +1,19 @@
-import { gridUnit, layoutPadding, type Box, type Point, type Side, type Snapped } from './geometry.ts';
+import type { ArchiMateSide } from 'archimaid/language';
+import { isCoarsePointer, placeBox, svgNamespace } from './dom.ts';
+import {
+  defaultItemSize,
+  gridUnit,
+  layoutPadding,
+  minimumHeaderHeight,
+  type Box,
+  type Point,
+  type Snapped,
+} from './geometry.ts';
+import type { RelationshipEnd } from './source.ts';
 
 // The rendered SVG sits on a stage whose coordinates are the renderer's layout coordinates, so grid maths,
 // overlays and hit-testing all share one space. Pan and zoom are a CSS transform on the stage.
 
-export type End = 'source' | 'target';
 export type Tool = 'select' | 'hand' | 'connect';
 export type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
@@ -13,7 +23,7 @@ export interface CanvasEvents {
   readonly selectMany: (ids: readonly string[]) => void;
   readonly selectRelationship: (id: string) => void;
   // An end dropped on an element: another element reconnects it, its own element pins the side.
-  readonly reconnect: (id: string, end: End, element: string, side: Side) => void;
+  readonly reconnect: (id: string, end: RelationshipEnd, element: string, side: ArchiMateSide) => void;
   readonly snap: (id: string, topLeft: Point) => Snapped;
   readonly snapResize: (id: string, box: Box) => Snapped;
   readonly resize: (id: string, box: Box) => void;
@@ -30,7 +40,6 @@ const maxZoom = 3;
 const dragThreshold = 4;
 // Matches the stage transition in styles.css.
 const easeMs = 320;
-const svgNamespace = 'http://www.w3.org/2000/svg';
 
 type Tap = { readonly kind: 'element' | 'relationship'; readonly id: string };
 
@@ -78,7 +87,7 @@ type Gesture =
       readonly box: Box;
       target: Box;
     }
-  | { readonly kind: 'reconnect'; readonly id: string; readonly end: End; readonly origin: Point };
+  | { readonly kind: 'reconnect'; readonly id: string; readonly end: RelationshipEnd; readonly origin: Point };
 
 function parseTranslate(element: Element): Point | undefined {
   const match = /translate\(\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*\)/u.exec(element.getAttribute('transform') ?? '');
@@ -92,8 +101,8 @@ function relationshipId(target: EventTarget | null): string | undefined {
 }
 
 // The side of a box nearest to a point, in the T/R/B/L letters of the positions block.
-function nearestSide(box: Box, point: Point): Side {
-  const distances: readonly (readonly [Side, number])[] = [
+function nearestSide(box: Box, point: Point): ArchiMateSide {
+  const distances: readonly (readonly [ArchiMateSide, number])[] = [
     ['T', Math.abs(point.y - box.y)],
     ['R', Math.abs(point.x - (box.x + box.width))],
     ['B', Math.abs(point.y - (box.y + box.height))],
@@ -117,6 +126,10 @@ function spanning(from: Point, to: Point): Box {
     width: Math.abs(to.x - from.x),
     height: Math.abs(to.y - from.y),
   };
+}
+
+function grown(box: Box, by: number): Box {
+  return { x: box.x - by, y: box.y - by, width: box.width + 2 * by, height: box.height + 2 * by };
 }
 
 const minimumSide = 20;
@@ -166,7 +179,7 @@ const elementId = (target: EventTarget | null): string | undefined => idUnder(ta
 export class DiagramCanvas {
   readonly boxes = new Map<string, Box>();
   // Notes are moved and renamed like elements, but take no relationships and keep the size of their text.
-  readonly notes = new Set<string>();
+  private readonly notes = new Set<string>();
   private readonly edges = new Map<string, { start: Point; end: Point }>();
   private selectedRelationship: string | null = null;
   private readonly headers = new Map<string, number>();
@@ -197,14 +210,13 @@ export class DiagramCanvas {
     this.marquee.className = 'marquee';
     this.ghost.className = 'ghost';
     this.line.setAttribute('class', 'connector-line');
-    this.line.innerHTML =
-      '<line stroke="#17171c" stroke-width="2" stroke-dasharray="6 4" /><circle r="5" fill="#1f7fae" />';
+    this.line.innerHTML = '<line /><circle r="5" />';
     root.addEventListener('pointerdown', (event) => this.pointerDown(event));
     root.addEventListener('pointermove', (event) => this.pointerMove(event));
     root.addEventListener('pointerup', (event) => this.pointerUp(event));
     root.addEventListener('pointercancel', (event) => {
       this.pointers.delete(event.pointerId);
-      this.cancelGesture();
+      this.cancel();
     });
     root.addEventListener('dblclick', (event) => {
       if (this.locked || this.chosenTool === 'connect') return;
@@ -213,10 +225,6 @@ export class DiagramCanvas {
     });
     root.addEventListener('wheel', (event) => this.wheel(event), { passive: false });
     this.applyTransform();
-  }
-
-  get zoom(): number {
-    return this.scale;
   }
 
   set zoomListener(listener: (scale: number) => void) {
@@ -246,7 +254,7 @@ export class DiagramCanvas {
   // still selects, so details can be read, but the selection offers no handles to change anything.
   set readOnly(locked: boolean) {
     this.locked = locked;
-    this.cancelGesture();
+    this.cancel();
     this.root.classList.toggle('is-hand', this.handActive);
     this.drawSelection();
   }
@@ -309,7 +317,10 @@ export class DiagramCanvas {
       const height = Number(outline?.getAttribute('height') ?? bounds.height);
       this.boxes.set(id, { x: position.x, y: position.y, width, height });
       const label = group.querySelector(':scope > text');
-      this.headers.set(id, Math.max(54, (label instanceof SVGGraphicsElement ? label.getBBox().height : 0) + 20));
+      this.headers.set(
+        id,
+        Math.max(minimumHeaderHeight, (label instanceof SVGGraphicsElement ? label.getBBox().height : 0) + 20),
+      );
     }
     // Shift the SVG so layout coordinates equal stage coordinates and nothing jumps between renders.
     svg.style.left = `${-(offset?.x ?? 0)}px`;
@@ -318,7 +329,7 @@ export class DiagramCanvas {
 
   // The renderer's header height decides where a container's content area starts.
   headerOf(id: string): number {
-    return this.headers.get(id) ?? 54;
+    return this.headers.get(id) ?? minimumHeaderHeight;
   }
 
   setSelection(ids: readonly string[]): void {
@@ -343,9 +354,7 @@ export class DiagramCanvas {
     for (const path of this.svg?.querySelectorAll('.is-selected') ?? []) path.classList.remove('is-selected');
     const edge = this.selectedRelationship ? this.edges.get(this.selectedRelationship) : undefined;
     if (edge && this.selectedRelationship) {
-      this.svg
-        ?.querySelector(`path[data-archimate-relationship="${CSS.escape(this.selectedRelationship)}"]`)
-        ?.classList.add('is-selected');
+      this.relationshipPath(this.selectedRelationship)?.classList.add('is-selected');
       if (this.locked) return;
       for (const [end, point] of [
         ['source', edge.start],
@@ -367,21 +376,15 @@ export class DiagramCanvas {
       if (!box) continue;
       const ring = document.createElement('div');
       ring.className = 'ring';
-      Object.assign(ring.style, {
-        left: `${box.x - inset}px`,
-        top: `${box.y - inset}px`,
-        width: `${box.width + 2 * inset}px`,
-        height: `${box.height + 2 * inset}px`,
-      });
+      placeBox(ring, grown(box, inset));
       this.overlay.append(ring);
     }
     if (this.locked) return;
     const box = this.single && !this.notes.has(this.single) ? this.boxes.get(this.single) : undefined;
     if (!box) return;
     // Edge and corner strips sit under the round connect handles, which win where they overlap.
-    // Fingers need larger targets than a mouse pointer.
-    const band = matchMedia('(pointer: coarse)').matches ? 20 : 10;
-    const outer = { x: box.x - inset, y: box.y - inset, width: box.width + 2 * inset, height: box.height + 2 * inset };
+    const band = isCoarsePointer() ? 20 : 10;
+    const outer = grown(box, inset);
     const zones: readonly (readonly [Edge, number, number, number, number])[] = [
       ['n', outer.x, outer.y - band / 2, outer.width, band],
       ['s', outer.x, outer.y + outer.height - band / 2, outer.width, band],
@@ -397,13 +400,8 @@ export class DiagramCanvas {
       zone.className = `resize-zone${edge.length === 2 ? ' corner' : ''}`;
       zone.dataset.edge = edge;
       zone.dataset.tip = 'Drag to resize';
-      Object.assign(zone.style, {
-        left: `${x}px`,
-        top: `${y}px`,
-        width: `${width}px`,
-        height: `${height}px`,
-        cursor: edgeCursors[edge],
-      });
+      zone.style.cursor = edgeCursors[edge];
+      placeBox(zone, { x, y, width, height });
       this.overlay.append(zone);
     }
     const sides: readonly (readonly [string, number, number])[] = [
@@ -428,12 +426,7 @@ export class DiagramCanvas {
     return { x: (clientX - rect.left - this.pan.x) / this.scale, y: (clientY - rect.top - this.pan.y) / this.scale };
   }
 
-  clientPoint(point: Point): Point {
-    const rect = this.root.getBoundingClientRect();
-    return { x: rect.left + this.pan.x + point.x * this.scale, y: rect.top + this.pan.y + point.y * this.scale };
-  }
-
-  elementAt(clientX: number, clientY: number): string | undefined {
+  private elementAt(clientX: number, clientY: number): string | undefined {
     return elementId(document.elementFromPoint(clientX, clientY));
   }
 
@@ -443,12 +436,7 @@ export class DiagramCanvas {
       return;
     }
     const { box, label } = snapped;
-    Object.assign(this.ghost.style, {
-      left: `${box.x}px`,
-      top: `${box.y}px`,
-      width: `${box.width}px`,
-      height: `${box.height}px`,
-    });
+    placeBox(this.ghost, box);
     this.ghost.innerHTML = '';
     const tag = document.createElement('span');
     tag.className = 'ghost-label';
@@ -467,11 +455,12 @@ export class DiagramCanvas {
     input.className = note ? 'rename rename-note' : 'rename';
     input.value = initial;
     input.setAttribute('aria-label', note ? 'Note text' : 'Element name');
-    Object.assign(input.style, {
-      left: `${box.x}px`,
-      top: `${box.y}px`,
-      width: `${Math.max(box.width, 140)}px`,
-      height: note ? `${Math.max(box.height, 60)}px` : `${Math.min(box.height, 60)}px`,
+    const { width, height } = defaultItemSize;
+    placeBox(input, {
+      x: box.x,
+      y: box.y,
+      width: Math.max(box.width, width),
+      height: note ? Math.max(box.height, height) : Math.min(box.height, height),
     });
     let finished = false;
     const finish = (save: boolean) => {
@@ -562,7 +551,7 @@ export class DiagramCanvas {
   private startPinch(): void {
     const [first, second] = [...this.pointers.values()];
     if (!first || !second) return;
-    this.cancelGesture();
+    this.cancel();
     this.gesture = {
       kind: 'pinch',
       distance: Math.max(1, Math.hypot(first.x - second.x, first.y - second.y)),
@@ -619,9 +608,7 @@ export class DiagramCanvas {
       // The line is redrawn from the end that stays put.
       const origin = end === 'source' ? edge.end : edge.start;
       this.gesture = { kind: 'reconnect', id: this.selectedRelationship, end, origin };
-      this.svg
-        ?.querySelector(`path[data-archimate-relationship="${CSS.escape(this.selectedRelationship)}"]`)
-        ?.classList.add('is-moving');
+      this.relationshipPath(this.selectedRelationship)?.classList.add('is-moving');
       this.showLine(origin, this.layoutPoint(client.x, client.y));
     } else if (target?.closest('.resize-zone') && this.single && !handle) {
       const zone = target.closest<HTMLElement>('.resize-zone');
@@ -672,13 +659,7 @@ export class DiagramCanvas {
   }
 
   private drawMarquee(gesture: Extract<Gesture, { kind: 'marquee' }>): void {
-    const area = spanning(gesture.start, gesture.end);
-    Object.assign(this.marquee.style, {
-      left: `${area.x}px`,
-      top: `${area.y}px`,
-      width: `${area.width}px`,
-      height: `${area.height}px`,
-    });
+    placeBox(this.marquee, spanning(gesture.start, gesture.end));
     if (!this.marquee.isConnected) this.overlay.append(this.marquee);
   }
 
@@ -828,7 +809,7 @@ export class DiagramCanvas {
     }
   }
 
-  private cancelGesture(): void {
+  cancel(): void {
     const gesture = this.gesture;
     this.gesture = { kind: 'none' };
     this.root.classList.remove('is-panning');
@@ -846,8 +827,8 @@ export class DiagramCanvas {
     }
   }
 
-  cancel(): void {
-    this.cancelGesture();
+  private relationshipPath(id: string): SVGPathElement | null {
+    return this.svg?.querySelector<SVGPathElement>(`path[data-archimate-relationship="${CSS.escape(id)}"]`) ?? null;
   }
 
   private groupOf(id: string): SVGGElement | null {

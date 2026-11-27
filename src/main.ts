@@ -3,11 +3,17 @@ import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/600.css';
 import './styles.css';
 
-import { validateArchiMate, type ArchiMateDiagnostic, type ArchiMateModel } from 'archimaid/language';
-import { DiagramCanvas, type End, type Tool } from './canvas.ts';
-import { gridUnit, type Point, type Side } from './geometry.ts';
+import {
+  validateArchiMate,
+  type ArchiMateDiagnostic,
+  type ArchiMateModel,
+  type ArchiMateRelationship,
+  type ArchiMateSide,
+} from 'archimaid/language';
+import { DiagramCanvas, type Tool } from './canvas.ts';
+import { defaultItemSize, gridUnit, type Point } from './geometry.ts';
 import { notePaletteType, paletteType, tileIcon } from './catalogue.ts';
-import { confirmTwice, createDropdown, isTyping, pressOnly } from './dom.ts';
+import { confirmTwice, createDropdown, isCoarsePointer, isTyping, pressOnly } from './dom.ts';
 import { plural, sideNames } from './format.ts';
 import { renderElementInspector, renderRelationshipInspector, renderSelectionBar } from './inspector.ts';
 import { changedLineNumbers, History } from './history.ts';
@@ -33,7 +39,7 @@ import { convertNotation, type Notation } from './notation.ts';
 import { copyText } from './clipboard.ts';
 import { exportDiagram, fileBaseOf } from './export.ts';
 import { buildAddSheet, buildPalette, makeDraggable, type DragPayload } from './palette.ts';
-import { closePicker, openPicker } from './picker.ts';
+import { closePicker, openPicker, pickerWidth } from './picker.ts';
 import type { RelationshipChoice } from './relationships.ts';
 import { renderDiagram } from './render.ts';
 import { installTooltips } from './tooltip.ts';
@@ -63,6 +69,7 @@ import {
   usedWords,
   type GridPoint,
   type GridSize,
+  type RelationshipEnd,
 } from './source.ts';
 import { STAR_REQUEST_MS, starRequest } from './star-request.ts';
 import { readStored, writeStored } from './storage.ts';
@@ -236,7 +243,7 @@ function dropOnCanvas(payload: DragPayload, client: Point | undefined): void {
   const rect = ui.canvas.getBoundingClientRect();
   const at = client ?? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   const point = canvas.layoutPoint(at.x, at.y);
-  const topLeft = { x: point.x - 70, y: point.y - 30 };
+  const topLeft = { x: point.x - defaultItemSize.width / 2, y: point.y - defaultItemSize.height / 2 };
   if (payload.kind === 'place') {
     const placed = placeAt(placement(), source, payload.id, rawGridFor(placement(), payload.id, topLeft));
     applyShift(placed.shift);
@@ -377,11 +384,19 @@ function relationshipsEditable(): boolean {
   return false;
 }
 
+function relationshipIndex(id: string): number {
+  return model?.relationships.findIndex((relationship) => relationship.id === id) ?? -1;
+}
+
+function selectedRelationshipModel(): ArchiMateRelationship | undefined {
+  return selectedRelationship === null ? undefined : model?.relationships[selectedRelationship];
+}
+
 function selectRelationship(id: string): void {
   stopConnecting();
   saveInspector();
   saveRelationshipInspector();
-  const index = model?.relationships.findIndex((relationship) => relationship.id === id) ?? -1;
+  const index = relationshipIndex(id);
   selected = null;
   selectedRelationship = index >= 0 ? index : null;
   canvas.setRelationshipSelection(index >= 0 ? id : null);
@@ -389,8 +404,8 @@ function selectRelationship(id: string): void {
   showRelationshipInspector();
 }
 
-function reconnect(id: string, end: End, element: string, side: Side): void {
-  const index = model?.relationships.findIndex((relationship) => relationship.id === id) ?? -1;
+function reconnect(id: string, end: RelationshipEnd, element: string, side: ArchiMateSide): void {
+  const index = relationshipIndex(id);
   const relationship = model?.relationships[index];
   if (!relationship || !relationshipsEditable()) return;
   const which = end === 'source' ? 'start' : 'end';
@@ -415,7 +430,7 @@ function saveRelationshipInspector(): void {
 
 function showRelationshipInspector(): void {
   const index = selectedRelationship;
-  const relationship = index === null ? undefined : model?.relationships[index];
+  const relationship = selectedRelationshipModel();
   ui.relInspector.classList.toggle('is-hidden', !relationship);
   syncSheets();
   if (model && relationship && index !== null) renderRelationshipInspector(relationship, index, model, source);
@@ -480,7 +495,7 @@ async function refresh(): Promise<void> {
     selected = group[0] ?? null;
     group = [];
   }
-  const relationship = selectedRelationship === null ? undefined : model?.relationships[selectedRelationship];
+  const relationship = selectedRelationshipModel();
   if (!relationship) selectedRelationship = null;
   if (relationship) canvas.setRelationshipSelection(relationship.id);
   else canvas.setSelection(selection());
@@ -721,10 +736,9 @@ ui.relLabel.addEventListener('keydown', (event) => {
 });
 ui.relRetype.addEventListener('click', () => {
   const index = selectedRelationship;
-  const relationship = index === null ? undefined : model?.relationships[index];
-  if (index === null || !relationship) return;
+  if (index === null || !selectedRelationshipModel()) return;
   const rect = ui.relRetype.getBoundingClientRect();
-  openPicker({ x: rect.left - 250, y: rect.top - 12 }, 'Change the type', (glyph) => {
+  openPicker({ x: rect.left - pickerWidth, y: rect.top - 12 }, 'Change the type', (glyph) => {
     if (relationshipsEditable()) commit(setRelationshipGlyph(source, index, glyph), `Changed the type to ${glyph}`);
   });
 });
@@ -768,10 +782,14 @@ ui.share.addEventListener('click', async () => {
 
 installCopyButton(() => source);
 
-function setTitle(title: string): void {
+function showTitle(title: string): void {
   ui.title.value = title;
+  ui.fileName.textContent = `${fileBaseOf(title)}.mmd`;
+}
+
+function setTitle(title: string): void {
+  showTitle(title);
   writeStored(titleKey, title);
-  ui.fileName.textContent = `${fileBaseOf(ui.title.value)}.mmd`;
 }
 
 ui.title.addEventListener('change', () => setTitle(ui.title.value));
@@ -874,7 +892,7 @@ ui.toolConnect.addEventListener('click', () => {
   else setTool('connect');
 });
 // A finger has no scroll wheel, so touch screens start with the hand and a one-finger drag moves the canvas.
-setTool(matchMedia('(pointer: coarse)').matches ? 'hand' : 'select');
+setTool(isCoarsePointer() ? 'hand' : 'select');
 
 // Space moves the canvas only while it is held, and only when it would not press a focused control.
 function holdsSpace(event: KeyboardEvent): boolean {
@@ -926,8 +944,7 @@ installTooltips();
 async function start(): Promise<void> {
   const shared = await decodeShareHash(location.hash);
   applyMode(readMode(shared.kind === 'source'));
-  ui.title.value = readStored(titleKey) ?? starterExample.title;
-  ui.fileName.textContent = `${fileBaseOf(ui.title.value)}.mmd`;
+  showTitle(readStored(titleKey) ?? starterExample.title);
   setCollapsed(readStored(collapsedKey) === '1');
   source = shared.kind === 'source' ? shared.source : (readStored(sourceKey) ?? starterExample.source);
   if (shared.kind === 'invalid') showToast('That share link is damaged, so your last diagram opened instead.');

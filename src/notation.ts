@@ -1,10 +1,5 @@
-import {
-  relationshipConnectors,
-  validateArchiMate,
-  type ArchiMateModel,
-  type ArchiMateRelationship,
-} from 'archimaid/language';
-import { connectorGlyphs, escapeRegExp, identifier, quotedText } from './grammar.ts';
+import { validateArchiMate, type ArchiMateModel, type ArchiMateRelationship } from 'archimaid/language';
+import { connectorFor, connectorGlyphs, connectorNotation, escapeRegExp, identifier, quotedText } from './grammar.ts';
 
 export type Notation = 'long' | 'shorthand';
 
@@ -15,8 +10,6 @@ export type NotationResult =
   | { readonly kind: 'invalid' }
   // The rewrite would have changed the diagram; this is a bug in the converter, so nothing is applied.
   | { readonly kind: 'failed' };
-
-type Connector = keyof typeof relationshipConnectors;
 
 const id = identifier;
 const quoted = quotedText;
@@ -89,7 +82,8 @@ function toLongForm(source: string): Rewrite {
     const match = shorthandLine.exec(line);
     if (!match) return line;
     const [, indent, from = '', connector, to = '', label, trailing] = match;
-    const notation = relationshipConnectors[connector as Connector];
+    const notation = connectorNotation(connector ?? '');
+    if (!notation) return line;
     let relationshipId = `${from}_${notation.type}_${to}`;
     for (let suffix = 2; usedIds.has(relationshipId); suffix++)
       relationshipId = `${from}_${notation.type}_${to}_${suffix}`;
@@ -102,18 +96,8 @@ function toLongForm(source: string): Rewrite {
   return { source: rewritten.join('\n'), converted, kept: 0 };
 }
 
-function connectorFor(type: string, access: string | undefined, directed: boolean): Connector | undefined {
-  const mode = access ?? (type === 'access' ? 'unspecified' : undefined);
-  return (Object.entries(relationshipConnectors) as [Connector, (typeof relationshipConnectors)[Connector]][]).find(
-    ([, notation]) =>
-      notation.type === type &&
-      ('access' in notation ? notation.access : undefined) === mode &&
-      'directed' in notation === directed,
-  )?.[0];
-}
-
 function isReferencedElsewhere(lines: readonly string[], declarationIndex: number, relationshipId: string): boolean {
-  const word = new RegExp(String.raw`(?<![\w-])${relationshipId.replaceAll('-', '\\-')}(?![\w-])`, 'u');
+  const word = new RegExp(String.raw`(?<![\w-])${escapeRegExp(relationshipId)}(?![\w-])`, 'u');
   return lines.some((line, index) => index !== declarationIndex && word.test(line.replace(/\s%%.*$/u, '')));
 }
 

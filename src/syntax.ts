@@ -1,40 +1,22 @@
 import { HighlightStyle, StreamLanguage, syntaxHighlighting, type StringStream } from '@codemirror/language';
 import { Tag, tags } from '@lezer/highlight';
-import { elementTypes, relationshipConnectors, relationshipTypes } from 'archimaid/language';
+import { elementTypes, relationshipTypes } from 'archimaid/language';
+import type { Category } from './catalogue.ts';
+import { connectorGlyphs, keywords as keywordList, longestFirst } from './grammar.ts';
 
-const keywords = new Set([
-  'direction',
-  'layout',
-  'element',
-  'description',
-  'relationship',
-  'access',
-  'directed',
-  'label',
-  'note',
-  'on',
-  'nest',
-  'in',
-  'via',
-  'click',
-  'href',
-  'positions',
-  'at',
-  'size',
-  'from',
-  'to',
-]);
-type Layer = (typeof elementTypes)[keyof typeof elementTypes]['category'];
+const keywords = new Set(keywordList);
 
 // Element types are tinted by their layer, as on archimaid.org, so the source previews the diagram's colours.
-const elementLayers = new Map<string, Layer>(Object.entries(elementTypes).map(([key, type]) => [key, type.category]));
+const elementLayers = new Map<string, Category>(
+  Object.entries(elementTypes).map(([key, type]) => [key, type.category]),
+);
 const layers = new Set(elementLayers.values());
 const relationshipTypeNames = new Set<string>(relationshipTypes);
 const layerTags = new Map(Array.from(layers, (layer) => [layer, Tag.define(tags.typeName)]));
-const layerToken = (layer: Layer): string => `layer-${layer}`;
+const layerToken = (layer: Category): string => `layer-${layer}`;
 const metadataKeys = /^(?:title|accTitle|accDescr)\s*:/u;
 // Longest first, so `<..>` wins over `<..` and `..`.
-const connectors = [...Object.keys(relationshipConnectors), '->'].sort((left, right) => right.length - left.length);
+const connectors = [...connectorGlyphs, '->'].sort(longestFirst);
 
 interface State {
   inMetadataValue: boolean;
