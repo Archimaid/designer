@@ -16,11 +16,10 @@ export interface Snapped {
   readonly label: string;
 }
 
-// The renderer leaves this margin around a custom layout before the first grid line.
-export const layoutPadding = 24;
-export const gridUnit = 20;
+// The grid custom layout positions refer to, and the margin before its first line.
+export { gridUnit, layoutPadding } from 'archimaid/language';
 
-// The renderer's smallest container header, which is where a container's content area starts at the least.
+// The renderer's smallest header, for an item whose drawing gives no header height of its own, such as a note.
 export const minimumHeaderHeight = 54;
 
 // The size the canvas assumes for an item it has not drawn yet, such as one just dropped from the palette.

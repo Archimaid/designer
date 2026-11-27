@@ -54,8 +54,6 @@ import {
   addNote,
   addRelationship,
   clearDiagram,
-  countRelationshipLines,
-  readRelationshipLabel,
   reconnectRelationship,
   removeRelationship,
   setAnchor,
@@ -344,11 +342,10 @@ function setSelection(next: Selection, save = true): void {
 
 // Relationships
 
-// Relationship edits address lines by position, which only works while the text and the model agree.
-function relationshipsEditable(): boolean {
-  if (doc.model && countRelationshipLines(doc.source) === doc.model.relationships.length) return true;
-  showToast('Fix the text first: its relationships do not match the diagram.');
-  return false;
+// A relationship edit finds its statement in the current text, which needs the text to be without errors.
+function commitRelationshipEdit(next: string | undefined, message: string | undefined): void {
+  if (next === undefined) showToast('Fix the errors in the text first, then edit the relationship.');
+  else commit(next, message);
 }
 
 function relationshipIndex(id: string): number {
@@ -366,46 +363,49 @@ function selectRelationship(id: string): void {
 }
 
 function reconnect(id: string, end: RelationshipEnd, element: string, side: ArchiMateSide): void {
-  const index = relationshipIndex(id);
-  const relationship = doc.model?.relationships[index];
-  if (!relationship || !relationshipsEditable()) return;
+  const relationship = doc.model?.relationships.find((candidate) => candidate.id === id);
+  if (!relationship) return;
   const which = end === 'source' ? 'start' : 'end';
   if (relationship[end] === element) {
     const note = doc.model?.layout === 'custom' ? '' : ' (used in custom layout)';
-    commit(
-      setAnchor(doc.source, index, end, side),
+    commitRelationshipEdit(
+      setAnchor(doc.source, id, end, side),
       layoutNote(`Pinned the ${which} to the ${sideNames[side]} side${note}`),
     );
   } else {
-    commit(
-      reconnectRelationship(doc.source, index, end, element),
+    commitRelationshipEdit(
+      reconnectRelationship(doc.source, id, end, element),
       `Moved the ${which} to ${nameOf(doc.model, element)}`,
     );
   }
 }
 
 function saveRelationshipInspector(): void {
-  const index = selectedRelationship(current);
-  if (index === null || !doc.model?.relationships[index] || ui.relInspector.classList.contains('is-hidden')) return;
+  const relationship = selectedRelationshipModel();
+  if (!relationship || ui.relInspector.classList.contains('is-hidden')) return;
   const label = ui.relLabel.value.trim();
-  if (label === readRelationshipLabel(doc.source, index) || !relationshipsEditable()) return;
-  commit(setRelationshipLabel(doc.source, index, label), label ? `Labelled “${label}”` : 'Removed the label');
+  if (label === (relationship.label ?? '')) return;
+  commitRelationshipEdit(
+    setRelationshipLabel(doc.source, relationship.id, label),
+    label ? `Labelled “${label}”` : 'Removed the label',
+  );
 }
 
 function showRelationshipInspector(): void {
-  const index = selectedRelationship(current);
   const relationship = selectedRelationshipModel();
   ui.relInspector.classList.toggle('is-hidden', !relationship);
   syncSheets();
-  if (doc.model && relationship && index !== null)
-    renderRelationshipInspector(relationship, index, doc.model, doc.source);
+  if (doc.model && relationship) {
+    renderRelationshipInspector(relationship, doc.model, doc.sources?.relationships.get(relationship.id)?.notation);
+  }
 }
 
 function deleteRelationship(): void {
-  const index = selectedRelationship(current);
-  if (index === null || !relationshipsEditable()) return;
-  setSelection(nothingSelected, false);
-  commit(removeRelationship(doc.source, index), 'Deleted the relationship');
+  const relationship = selectedRelationshipModel();
+  if (!relationship) return;
+  const next = removeRelationship(doc.source, relationship.id);
+  if (next !== undefined) setSelection(nothingSelected, false);
+  commitRelationshipEdit(next, 'Deleted the relationship');
 }
 
 function showInspector(): void {
@@ -433,7 +433,12 @@ function scheduleRefresh(delay: number): void {
 async function refresh(): Promise<void> {
   clearTimeout(refreshTimer);
   doc.validate();
-  showStatus(editor, { source: doc.source, model: doc.model, diagnostics: doc.diagnostics });
+  showStatus(editor, {
+    source: doc.source,
+    model: doc.model,
+    diagnostics: doc.diagnostics,
+    sources: doc.sources,
+  });
   updateChrome();
   const errors = doc.diagnostics.filter(({ severity }) => severity === 'error');
   ui.errorChip.hidden = errors.length === 0;
@@ -689,11 +694,11 @@ ui.relLabel.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') ui.relLabel.blur();
 });
 ui.relRetype.addEventListener('click', () => {
-  const index = selectedRelationship(current);
-  if (index === null || !selectedRelationshipModel()) return;
+  const relationship = selectedRelationshipModel();
+  if (!relationship) return;
   const rect = ui.relRetype.getBoundingClientRect();
   openPicker({ x: rect.left - pickerWidth, y: rect.top - 12 }, 'Change the type', (glyph) => {
-    if (relationshipsEditable()) commit(setRelationshipGlyph(doc.source, index, glyph), `Changed the type to ${glyph}`);
+    commitRelationshipEdit(setRelationshipGlyph(doc.source, relationship.id, glyph), `Changed the type to ${glyph}`);
   });
 });
 

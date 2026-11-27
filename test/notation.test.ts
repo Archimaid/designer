@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { test } from 'node:test';
+import { validateArchiMate } from 'archimaid/language';
 import { convertNotation, detectNotation } from '../src/notation.ts';
 
 const header =
@@ -69,13 +70,15 @@ test('every packaged example converts both ways without changing the diagram', a
   }
 });
 
+const detect = (source: string) => detectNotation(source, validateArchiMate(source).sources);
+
 test('the detected notation ignores long-form relationships that must stay long', () => {
   const nested =
     'archimate-beta\n  element applicationComponent suite "Suite"\n  element applicationComponent part "Part"\n' +
     '  relationship composition includes suite -> part\n  nest part in suite via includes\n';
-  assert.equal(detectNotation(header + '  a ..> d\n'), 'shorthand');
-  assert.equal(detectNotation(header + '  relationship access w a -> d access write\n'), 'long');
-  assert.equal(detectNotation(header + '  a ..> d\n  relationship access w a -> d access write\n'), 'mixed');
-  assert.equal(detectNotation(nested + '  part --> suite\n'), 'shorthand');
-  assert.equal(detectNotation(header), 'none');
+  assert.equal(detect(header + '  a ..> d\n'), 'shorthand');
+  assert.equal(detect(header + '  relationship access w a -> d access write\n'), 'long');
+  assert.equal(detect(header + '  a ..> d\n  relationship access w a -> d access write\n'), 'mixed');
+  assert.equal(detect(nested + '  part --> suite\n'), 'shorthand');
+  assert.equal(detect(header), 'none');
 });

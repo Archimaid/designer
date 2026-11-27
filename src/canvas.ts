@@ -332,11 +332,8 @@ export class DiagramCanvas {
       const width = Number(outline?.getAttribute('width') ?? bounds.width);
       const height = Number(outline?.getAttribute('height') ?? bounds.height);
       this.boxes.set(id, { x: position.x, y: position.y, width, height });
-      const label = group.querySelector(':scope > text');
-      this.headers.set(
-        id,
-        Math.max(minimumHeaderHeight, (label instanceof SVGGraphicsElement ? label.getBBox().height : 0) + 20),
-      );
+      const header = Number(group.getAttribute('data-archimate-header-height'));
+      if (header > 0) this.headers.set(id, header);
     }
     // Shift the SVG so layout coordinates equal stage coordinates and nothing jumps between renders.
     svg.style.left = `${-(offset?.x ?? 0)}px`;

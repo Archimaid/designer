@@ -1,4 +1,4 @@
-import type { ArchiMateDiagnostic, ArchiMateModel } from 'archimaid/language';
+import type { ArchiMateDiagnostic, ArchiMateModel, ArchiMateSourceMap } from 'archimaid/language';
 import { copyText } from './clipboard.ts';
 import { pressOnly } from './dom.ts';
 import type { CursorPosition, SourceEditor } from './editor.ts';
@@ -14,9 +14,10 @@ export interface DocumentStatus {
   readonly source: string;
   readonly model: ArchiMateModel | undefined;
   readonly diagnostics: readonly ArchiMateDiagnostic[];
+  readonly sources: ArchiMateSourceMap | undefined;
 }
 
-export function showStatus(editor: SourceEditor, { source, model, diagnostics }: DocumentStatus): void {
+export function showStatus(editor: SourceEditor, { source, model, diagnostics, sources }: DocumentStatus): void {
   const errors = diagnostics.filter(({ severity }) => severity === 'error').length;
   const warnings = diagnostics.length - errors;
   editor.showDiagnostics(diagnostics);
@@ -26,7 +27,7 @@ export function showStatus(editor: SourceEditor, { source, model, diagnostics }:
     ? `${plural(model.elements.length, 'element')} · ${plural(model.relationships.length, 'relationship')}`
     : '';
   showProblems(editor, diagnostics);
-  showNotation(source, errors === 0);
+  showNotation(source, sources, errors === 0);
 }
 
 function showProblems(editor: SourceEditor, diagnostics: readonly ArchiMateDiagnostic[]): void {
@@ -55,8 +56,8 @@ const notationButtons = [ui.notationLong, ui.notationShorthand];
 const notationTips = new Map(notationButtons.map((button) => [button, button.dataset.tip ?? ''] as const));
 
 // The pressed button shows what the text is written in, which a hand edit can change; mixed presses neither.
-function showNotation(source: string, valid: boolean): void {
-  const written = detectNotation(source);
+function showNotation(source: string, sources: ArchiMateSourceMap | undefined, valid: boolean): void {
+  const written = detectNotation(source, sources);
   pressOnly(
     notationButtons,
     written === 'long' ? ui.notationLong : written === 'shorthand' ? ui.notationShorthand : undefined,
