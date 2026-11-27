@@ -1,25 +1,6 @@
+import { relationshipChoices } from './relationships.ts';
+
 // The relationship picker that opens where a connection is released. One key picks a type.
-
-export interface RelationshipChoice {
-  readonly glyph: string;
-  readonly name: string;
-  readonly key: string;
-}
-
-// All eleven types stay listed until relationship checks against Appendix B land in archimaid.
-const relationshipChoices: readonly RelationshipChoice[] = [
-  { glyph: '-->', name: 'Serving', key: 's' },
-  { glyph: '==>', name: 'Triggering', key: 't' },
-  { glyph: '-.=>', name: 'Flow', key: 'f' },
-  { glyph: '@==>', name: 'Assignment', key: 'a' },
-  { glyph: '..|>', name: 'Realization', key: 'r' },
-  { glyph: '*--', name: 'Composition', key: 'c' },
-  { glyph: 'o--', name: 'Aggregation', key: 'g' },
-  { glyph: '..', name: 'Access', key: 'x' },
-  { glyph: '-.->', name: 'Influence', key: 'i' },
-  { glyph: '---', name: 'Association', key: 'o' },
-  { glyph: '--|>', name: 'Specialization', key: 'p' },
-];
 
 let open: (() => void) | undefined;
 

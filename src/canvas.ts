@@ -4,7 +4,7 @@ import { gridUnit, layoutPadding, type Box, type Point, type Side, type Snapped 
 // overlays and hit-testing all share one space. Pan and zoom are a CSS transform on the stage.
 
 export type End = 'source' | 'target';
-export type Tool = 'select' | 'hand';
+export type Tool = 'select' | 'hand' | 'connect';
 export type Edge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 export interface CanvasEvents {
@@ -20,6 +20,8 @@ export interface CanvasEvents {
   // The dragged element leads; the other selected elements follow it by the same distance.
   readonly move: (lead: string, topLeft: Point, followers: readonly string[]) => void;
   readonly connect: (from: string, to: string, client: Point) => void;
+  // With the connect tool, a click on empty canvas or a line stops connecting.
+  readonly stopConnecting: () => void;
   readonly rename: (id: string) => void;
 }
 
@@ -60,6 +62,14 @@ type Gesture =
     }
   | { readonly kind: 'marquee'; readonly start: Point; end: Point; moved: boolean }
   | { readonly kind: 'connect'; readonly from: string; readonly origin: Point }
+  // A press with the connect tool: released in place it picks an element or stops, dragged it moves the canvas.
+  | {
+      readonly kind: 'link';
+      readonly start: Point;
+      readonly pan: Point;
+      moved: boolean;
+      readonly target: Element | null;
+    }
   | {
       readonly kind: 'resize';
       readonly id: string;
@@ -166,6 +176,10 @@ export class DiagramCanvas {
   private gesture: Gesture = { kind: 'none' };
   private readonly pointers = new Map<number, Point>();
   private selection: readonly string[] = [];
+  // The element a connect-tool line starts from, once it is clicked.
+  private linkFrom: string | null = null;
+  // Where the pointer last was, so the connect line can follow it when the view moves under a still pointer.
+  private pointer: Point | null = null;
   private chosenTool: Tool = 'select';
   private holdingSpace = false;
   private locked = false;
@@ -193,7 +207,7 @@ export class DiagramCanvas {
       this.cancelGesture();
     });
     root.addEventListener('dblclick', (event) => {
-      if (this.locked) return;
+      if (this.locked || this.chosenTool === 'connect') return;
       const id = itemId(event.target);
       if (id) events.rename(id);
     });
@@ -210,8 +224,11 @@ export class DiagramCanvas {
   }
 
   // The select tool draws a selection box on empty canvas; the hand tool, or a held Space, moves the canvas.
+  // The connect tool draws a line from one clicked element to the next.
   set tool(tool: Tool) {
     this.chosenTool = tool;
+    if (tool !== 'connect') this.endLink();
+    this.root.classList.toggle('is-connecting', tool === 'connect');
     this.root.classList.toggle('is-hand', this.handActive);
   }
 
@@ -220,8 +237,9 @@ export class DiagramCanvas {
     this.root.classList.toggle('is-hand', this.handActive);
   }
 
+  // Space changes nothing for the connect tool, so it keeps the connect cursors rather than promising a grab.
   private get handActive(): boolean {
-    return this.locked || this.chosenTool === 'hand' || this.holdingSpace;
+    return this.locked || this.chosenTool === 'hand' || (this.holdingSpace && this.chosenTool !== 'connect');
   }
 
   // A read-only canvas pans and zooms, and every drag on it moves the view rather than the diagram. A tap
@@ -251,6 +269,9 @@ export class DiagramCanvas {
     this.stage.insertBefore(svg, this.overlay);
     this.svg = svg;
     this.measure();
+    if (this.linkFrom && !this.boxes.has(this.linkFrom)) this.endLink();
+    if (this.linkFrom) this.groupOf(this.linkFrom)?.classList.add('is-source');
+    this.refreshLink();
     this.drawSelection();
   }
 
@@ -535,6 +556,7 @@ export class DiagramCanvas {
     this.root.style.backgroundSize = `${cell}px ${cell}px`;
     this.root.style.backgroundPosition = `${this.pan.x + layoutPadding * this.scale}px ${this.pan.y + layoutPadding * this.scale}px`;
     this.onZoom(this.scale);
+    this.refreshLink();
   }
 
   private startPinch(): void {
@@ -585,6 +607,11 @@ export class DiagramCanvas {
       this.gesture = { kind: 'pan', start: client, pan: this.pan, moved: false, tap: this.tapOn(target) };
       return;
     }
+    // Space adds nothing here: a drag with the connect tool moves the canvas already.
+    if (this.chosenTool === 'connect' && event.button === 0) {
+      this.gesture = { kind: 'link', start: client, pan: this.pan, moved: false, target };
+      return;
+    }
     const handle = target?.closest('.handle');
     const end = handle instanceof HTMLElement ? handle.dataset.end : undefined;
     const edge = this.selectedRelationship ? this.edges.get(this.selectedRelationship) : undefined;
@@ -595,8 +622,7 @@ export class DiagramCanvas {
       this.svg
         ?.querySelector(`path[data-archimate-relationship="${CSS.escape(this.selectedRelationship)}"]`)
         ?.classList.add('is-moving');
-      this.overlay.append(this.line);
-      this.updateLine(this.layoutPoint(client.x, client.y));
+      this.showLine(origin, this.layoutPoint(client.x, client.y));
     } else if (target?.closest('.resize-zone') && this.single && !handle) {
       const zone = target.closest<HTMLElement>('.resize-zone');
       const edge = allEdges.find((candidate) => candidate === zone?.dataset.edge);
@@ -604,9 +630,9 @@ export class DiagramCanvas {
       if (!edge || !box) return;
       this.gesture = { kind: 'resize', id: this.single, edge, start: client, box, target: box };
     } else if (handle && this.single) {
-      this.gesture = { kind: 'connect', from: this.single, origin: this.layoutPoint(client.x, client.y) };
-      this.overlay.append(this.line);
-      this.updateLine(this.layoutPoint(client.x, client.y));
+      const origin = this.layoutPoint(client.x, client.y);
+      this.gesture = { kind: 'connect', from: this.single, origin };
+      this.showLine(origin, origin);
     } else {
       this.pressCanvas(event, target, client);
     }
@@ -672,11 +698,13 @@ export class DiagramCanvas {
     const gesture = this.gesture;
     const client = { x: event.clientX, y: event.clientY };
     if (this.pointers.has(event.pointerId)) this.pointers.set(event.pointerId, client);
+    this.pointer = client;
     switch (gesture.kind) {
       case 'pinch':
         this.pinch(gesture);
         return;
-      case 'pan': {
+      case 'pan':
+      case 'link': {
         const dx = client.x - gesture.start.x;
         const dy = client.y - gesture.start.y;
         if (!gesture.moved && Math.hypot(dx, dy) < dragThreshold) return;
@@ -727,12 +755,13 @@ export class DiagramCanvas {
       }
       case 'connect':
       case 'reconnect': {
-        this.updateLine(this.layoutPoint(client.x, client.y));
+        this.showLine(gesture.origin, this.layoutPoint(client.x, client.y));
         const target = this.elementAt(client.x, client.y);
         this.markTarget(gesture.kind === 'connect' && target === gesture.from ? undefined : target);
         return;
       }
       case 'none':
+        this.followLink(client);
         return;
     }
   }
@@ -768,6 +797,9 @@ export class DiagramCanvas {
         if (gesture.release === 'toggle') this.events.toggle(gesture.id);
         if (gesture.release === 'select') this.events.select(gesture.id);
         return;
+      case 'link':
+        if (!gesture.moved) this.linkTap(gesture.target, { x: event.clientX, y: event.clientY });
+        return;
       case 'connect': {
         this.line.remove();
         const target = this.elementAt(event.clientX, event.clientY);
@@ -801,7 +833,8 @@ export class DiagramCanvas {
     this.gesture = { kind: 'none' };
     this.root.classList.remove('is-panning');
     this.showGhost(null);
-    this.line.remove();
+    // The connect tool's line belongs to its picked start, not to a gesture, so it outlives a pinch.
+    if (gesture.kind === 'connect' || gesture.kind === 'reconnect') this.line.remove();
     this.marquee.remove();
     this.markTarget(undefined);
     this.svg?.querySelector('.is-moving')?.classList.remove('is-moving');
@@ -834,9 +867,50 @@ export class DiagramCanvas {
     if (id) this.groupOf(id)?.classList.add('is-target');
   }
 
-  private updateLine(to: Point): void {
-    if (this.gesture.kind !== 'connect' && this.gesture.kind !== 'reconnect') return;
-    const { origin } = this.gesture;
+  // The first element clicked becomes the start, the next one gets the line, and clicking the start again lets
+  // go of it. Notes take no relationships, so a click on one changes nothing; anything else stops connecting.
+  private linkTap(target: Element | null, client: Point): void {
+    const element = elementId(target);
+    if (!element) {
+      if (itemId(target)) return;
+      this.endLink();
+      this.events.stopConnecting();
+      return;
+    }
+    const from = this.linkFrom;
+    if (from === null) {
+      this.linkFrom = element;
+      this.groupOf(element)?.classList.add('is-source');
+      this.followLink(client);
+      return;
+    }
+    this.endLink();
+    if (from !== element) this.events.connect(from, element, client);
+  }
+
+  // While a start is picked, a line runs from its centre to the pointer and the element under it lights up.
+  private followLink(client: Point): void {
+    const box = this.linkFrom ? this.boxes.get(this.linkFrom) : undefined;
+    if (!box) return;
+    this.showLine({ x: box.x + box.width / 2, y: box.y + box.height / 2 }, this.layoutPoint(client.x, client.y));
+    const target = this.elementAt(client.x, client.y);
+    this.markTarget(target === this.linkFrom ? undefined : target);
+  }
+
+  private refreshLink(): void {
+    if (this.pointer) this.followLink(this.pointer);
+  }
+
+  private endLink(): void {
+    if (this.linkFrom === null) return;
+    this.groupOf(this.linkFrom)?.classList.remove('is-source');
+    this.linkFrom = null;
+    this.line.remove();
+    this.markTarget(undefined);
+  }
+
+  private showLine(origin: Point, to: Point): void {
+    if (!this.line.isConnected) this.overlay.append(this.line);
     const line = this.line.querySelector('line');
     const dot = this.line.querySelector('circle');
     line?.setAttribute('x1', String(origin.x));

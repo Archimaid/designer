@@ -78,7 +78,7 @@ export function iconSvg(type: Pick<PaletteType, 'icon'>): SVGSVGElement {
   return svg;
 }
 
-export function tileIcon(type: PaletteType, small = false): HTMLSpanElement {
+export function tileIcon(type: Pick<PaletteType, 'icon'>, small = false): HTMLSpanElement {
   const span = document.createElement('span');
   span.className = small ? 'tile-icon small' : 'tile-icon';
   span.append(iconSvg(type));
