@@ -3,11 +3,13 @@ import {
   type ArchiMateElement,
   type ArchiMateModel,
   type ArchiMateRelationship,
+  type ArchiMateRelationshipSource,
+  type ArchiMateSide,
 } from 'archimaid/language';
 import { paletteType, tileIcon, type PaletteType } from './catalogue.ts';
 import { sideNames } from './format.ts';
 import { glyphOf, nameOf } from './model.ts';
-import { readAnchor, readDescription, readRelationshipLine } from './source.ts';
+import { readDescription } from './source.ts';
 import { ui } from './ui.ts';
 
 const typeNames: ReadonlyMap<string, string> = new Map(Object.entries(relationshipNames));
@@ -60,21 +62,25 @@ function relationRow(model: ArchiMateModel, id: string, relationship: ArchiMateR
   return row;
 }
 
-// A relationship is addressed by its place among the relationships, which survives edits that change its ID.
+// The notation comes from the current text, and is unknown while the text has errors.
 export function renderRelationshipInspector(
   relationship: ArchiMateRelationship,
-  index: number,
   model: ArchiMateModel,
-  source: string,
+  notation: ArchiMateRelationshipSource['notation'] | undefined,
 ): void {
-  const line = readRelationshipLine(source, index);
-  const anchor = readAnchor(source, index);
+  const anchor = model.anchors?.find((candidate) => candidate.relationship === relationship.id);
+  const side = (pinned: ArchiMateSide | undefined) => (pinned ? ` · ${sideNames[pinned]}` : '');
   ui.relGlyph.textContent = glyphOf(relationship);
   ui.relType.textContent = `${typeNames.get(relationship.type) ?? relationship.type} relationship`;
   ui.relId.textContent = relationship.id;
-  ui.relFrom.textContent = nameOf(model, relationship.source) + (anchor.from ? ` · ${sideNames[anchor.from]}` : '');
-  ui.relTo.textContent = nameOf(model, relationship.target) + (anchor.to ? ` · ${sideNames[anchor.to]}` : '');
+  ui.relFrom.textContent = nameOf(model, relationship.source) + side(anchor?.source);
+  ui.relTo.textContent = nameOf(model, relationship.target) + side(anchor?.target);
   if (document.activeElement !== ui.relLabel) ui.relLabel.value = relationship.label ?? '';
-  ui.relRetype.disabled = line?.kind !== 'shorthand';
-  ui.relRetype.dataset.tip = ui.relRetype.disabled ? 'Change the type of a long-form relationship in the text.' : '';
+  ui.relRetype.disabled = notation !== 'shorthand';
+  ui.relRetype.dataset.tip =
+    notation === 'longForm'
+      ? 'Change the type of a long-form relationship in the text.'
+      : notation
+        ? ''
+        : 'Fix the errors in the text first.';
 }

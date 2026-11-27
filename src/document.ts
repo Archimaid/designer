@@ -1,4 +1,10 @@
-import { validateArchiMate, type ArchiMateDiagnostic, type ArchiMateModel } from 'archimaid/language';
+import {
+  validateArchiMate,
+  type ArchiMateDiagnostic,
+  type ArchiMateModel,
+  type ArchiMateSourceMap,
+  type ArchiMateValidationResult,
+} from 'archimaid/language';
 import { History } from './history.ts';
 
 // Typing is one history step per pause, not one per keystroke.
@@ -6,8 +12,8 @@ const typingMergeMs = 800;
 
 export type CommitOutcome = 'applied' | 'unchanged' | 'refused';
 
-function hasErrors(text: string): boolean {
-  return validateArchiMate(text).diagnostics.some(({ severity }) => severity === 'error');
+function hasErrors(result: ArchiMateValidationResult): boolean {
+  return result.diagnostics.some(({ severity }) => severity === 'error');
 }
 
 // The source text is the designer's only document state, with its undo history. The model is derived from
@@ -18,6 +24,7 @@ export class DiagramDocument {
   private problems: readonly ArchiMateDiagnostic[] = [];
   private readonly history = new History();
   private lastTyped = Number.NEGATIVE_INFINITY;
+  private checked: { readonly text: string; readonly result: ArchiMateValidationResult } | undefined;
 
   get source(): string {
     return this.text;
@@ -29,6 +36,11 @@ export class DiagramDocument {
 
   get diagnostics(): readonly ArchiMateDiagnostic[] {
     return this.problems;
+  }
+
+  // Where each part of the current text is written; missing while the text has errors.
+  get sources(): ArchiMateSourceMap | undefined {
+    return this.check(this.text).sources;
   }
 
   get canUndo(): boolean {
@@ -54,7 +66,7 @@ export class DiagramDocument {
   // An edit from the canvas. It never turns valid text into invalid text; a refused edit changes nothing.
   commit(next: string): CommitOutcome {
     if (next === this.text) return 'unchanged';
-    if (hasErrors(next) && !hasErrors(this.text)) return 'refused';
+    if (hasErrors(this.check(next)) && !hasErrors(this.check(this.text))) return 'refused';
     this.replace(next);
     return 'applied';
   }
@@ -82,8 +94,15 @@ export class DiagramDocument {
   }
 
   validate(): void {
-    const result = validateArchiMate(this.text);
+    const result = this.check(this.text);
     this.problems = result.diagnostics;
     if (result.model) this.lastModel = result.model;
+  }
+
+  // The last text validated is remembered, as the canvas, the inspector and the status bar ask about the
+  // same text several times for every edit.
+  private check(text: string): ArchiMateValidationResult {
+    if (this.checked?.text !== text) this.checked = { text, result: validateArchiMate(text) };
+    return this.checked.result;
   }
 }

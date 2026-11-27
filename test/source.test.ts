@@ -7,8 +7,6 @@ import {
   setNoteText,
   clearDiagram,
   addRelationship,
-  readAnchor,
-  readRelationshipLabel,
   reconnectRelationship,
   removeRelationship,
   setAnchor,
@@ -141,39 +139,57 @@ const related = `archimate-beta
     rel1 to L
   }`;
 
+function edited(result: string | undefined): string {
+  assert.ok(result !== undefined, 'the edit found its relationship');
+  return result;
+}
+
+function modelOf(source: string) {
+  const { model } = validateArchiMate(source);
+  assert.ok(model);
+  return model;
+}
+
+const assignment = 'clerk__assignment__fulfil';
+const serving = 'orders__serving__fulfil';
+
 test('reconnecting an end rewrites the relationship and drops the side pinned on the old element', () => {
-  const moved = reconnectRelationship(related, 1, 'target', 'clerk');
+  const moved = edited(reconnectRelationship(related, serving, 'target', 'clerk'));
   assert.deepEqual(errors(moved), []);
   assert.ok(moved.includes('  orders --> clerk : "Supports"'));
   assert.ok(moved.includes('    orders --> clerk from T\n'));
-  const long = reconnectRelationship(related, 2, 'source', 'fulfil');
+  const long = edited(reconnectRelationship(related, 'rel1', 'source', 'fulfil'));
   assert.ok(long.includes('  relationship realization rel1 fulfil -> clerk'));
   assert.ok(long.includes('    rel1 to L'));
-  assert.ok(!reconnectRelationship(related, 2, 'target', 'fulfil').includes('rel1 to'));
+  assert.ok(!edited(reconnectRelationship(related, 'rel1', 'target', 'fulfil')).includes('rel1 to'));
 });
 
 test('retypes, relabels, anchors and removes relationships', () => {
-  let result = setRelationshipGlyph(related, 1, '==>');
+  let result = edited(setRelationshipGlyph(related, serving, '==>'));
   assert.ok(
     result.includes('  orders ==> fulfil : "Supports"') && result.includes('    orders ==> fulfil from T to B'),
   );
-  result = setRelationshipLabel(result, 1, 'Feeds');
-  result = setRelationshipLabel(result, 0, 'Does');
-  result = setRelationshipLabel(result, 2, 'Realizes');
-  assert.equal(readRelationshipLabel(result, 1), 'Feeds');
+  const triggering = 'orders__triggering__fulfil';
+  result = edited(setRelationshipLabel(result, triggering, 'Feeds'));
+  result = edited(setRelationshipLabel(result, assignment, 'Does'));
+  result = edited(setRelationshipLabel(result, 'rel1', 'Realizes'));
+  assert.equal(modelOf(result).relationships.find(({ id }) => id === triggering)?.label, 'Feeds');
   assert.ok(result.includes('  clerk @==> fulfil : "Does"'));
   assert.ok(result.includes('relationship realization rel1 orders -> clerk label "Realizes"'));
-  result = setAnchor(result, 0, 'source', 'R');
-  assert.deepEqual(readAnchor(result, 0), { from: 'R' });
-  result = setAnchor(result, 2, 'target', undefined);
+  result = edited(setAnchor(result, assignment, 'source', 'R'));
+  assert.deepEqual(
+    modelOf(result).anchors?.find(({ relationship }) => relationship === assignment),
+    { relationship: assignment, source: 'R' },
+  );
+  result = edited(setAnchor(result, 'rel1', 'target', undefined));
   assert.ok(!result.includes('rel1 to'));
   assert.deepEqual(errors(result), []);
-  result = removeRelationship(result, 1);
+  result = edited(removeRelationship(result, triggering));
   assert.deepEqual(errors(result), []);
   assert.ok(!result.includes('orders ==> fulfil'));
 });
 
-test('relationship edits work on unspaced shorthand and keep comments and quoted %%', () => {
+test('relationship edits keep comments, tight spelling and quoted %%', () => {
   const tight = `archimate-beta
   element businessRole clerk "Clerk"
   element applicationService orders "Orders"
@@ -182,17 +198,43 @@ test('relationship edits work on unspaced shorthand and keep comments and quoted
   positions {
     orders-->clerk from T %% pinned
   }`;
+  const id = 'orders__serving__clerk';
   assert.deepEqual(errors(tight), []);
-  assert.equal(readRelationshipLabel(tight, 0), '50%% of it');
-  const relabelled = setRelationshipLabel(tight, 0, 'All');
+  const relabelled = edited(setRelationshipLabel(tight, id, 'All'));
   assert.ok(relabelled.includes('  orders-->clerk : "All" %% why'));
   assert.ok(relabelled.includes('    orders-->clerk from T %% pinned'));
-  const unlabelled = setRelationshipLabel(tight, 0, '');
-  assert.ok(unlabelled.includes('  orders-->clerk %% why'));
-  const retyped = setRelationshipGlyph(tight, 0, '==>');
+  assert.ok(edited(setRelationshipLabel(tight, id, '')).includes('  orders-->clerk %% why'));
+  const retyped = edited(setRelationshipGlyph(tight, id, '==>'));
   assert.ok(retyped.includes('  orders==>clerk : "50%% of it" %% why'));
-  assert.ok(retyped.includes('    orders ==> clerk from T'));
+  assert.ok(retyped.includes('    orders ==> clerk from T %% pinned'));
   assert.deepEqual(errors(retyped), []);
+});
+
+test('an anchor that names a long-form relationship by its connector follows it', () => {
+  const named = `archimate-beta
+  element businessRole clerk "Clerk"
+  element businessProcess fulfil "Fulfil"
+  element applicationService orders "Orders"
+  relationship serving rel1 orders -> fulfil
+
+  positions {
+    orders --> fulfil from T to B
+  }`;
+  const moved = edited(reconnectRelationship(named, 'rel1', 'target', 'clerk'));
+  assert.ok(moved.includes('    rel1 from T\n'));
+  assert.deepEqual(errors(moved), []);
+  const removed = edited(removeRelationship(named, 'rel1'));
+  assert.ok(!removed.includes('from T'));
+  assert.deepEqual(errors(removed), []);
+});
+
+test('relationship edits refuse text with errors, and pinning creates the positions block', () => {
+  assert.equal(setRelationshipLabel(related + '\n  element', serving, 'x'), undefined);
+  assert.equal(setRelationshipLabel(related, 'missing', 'x'), undefined);
+  const plain = 'archimate-beta\n  element businessRole a "A"\n  element businessRole b "B"\n  a --> b\n';
+  const pinned = edited(setAnchor(plain, 'a__serving__b', 'target', 'L'));
+  assert.ok(pinned.includes('  positions {\n    a --> b to L\n  }'));
+  assert.deepEqual(errors(pinned), []);
 });
 
 test('shifting makes room above and left without moving nested positions', () => {

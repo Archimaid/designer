@@ -2,17 +2,16 @@ import {
   elementTypes,
   getElementType,
   relationshipTypes,
+  validateArchiMate,
+  type ArchiMateAnchor,
+  type ArchiMateAnchorSource,
   type ArchiMateLayout,
+  type ArchiMateRelationshipSource,
   type ArchiMateSide,
+  type ArchiMateSourceMap,
 } from 'archimaid/language';
-import { connectorNotation, escapeRegExp, identifier, keywords, quotedText } from './grammar.ts';
-import {
-  parseRelationshipLine,
-  readLabel,
-  replaceSpan,
-  type RelationshipLine,
-  type ShorthandLine,
-} from './relationship-line.ts';
+import { connectorGlyphs, escapeRegExp, identifier, keywords, quotedText } from './grammar.ts';
+import { applySplices, removeLines, removeWithSpaceBefore, replaceSpan, textOf, type Splice } from './spans.ts';
 
 // Every canvas gesture is one of these pure text edits. The source stays the only state, so the text panel,
 // undo, share links and the renderer all see exactly what the designer wrote.
@@ -96,8 +95,14 @@ function depths(source: readonly string[]): number[] {
   });
 }
 
+// Placing a new statement only needs to recognise a relationship line, not read it.
+const relationshipHead = new RegExp(
+  String.raw`^\s*(?:relationship\s|${identifier}\s*(?:${connectorGlyphs.map(escapeRegExp).join('|')})\s*${identifier})`,
+  'u',
+);
+
 function isRelationshipLine(line: string): boolean {
-  return parseRelationshipLine(line) !== undefined;
+  return relationshipHead.test(code(line));
 }
 
 function positionsBlock(source: readonly string[]): { open: number; close: number } | undefined {
@@ -407,183 +412,134 @@ export function removeElement(source: string, id: string): string {
   return join(kept);
 }
 
-// Relationship edits address a relationship by its place among the relationship statements, which is the
-// order of the model's relationships. The positions block is skipped, because its anchor lines look alike.
+// Relationship edits find their statement and anchor through the spans archimaid reports for the current
+// text, so they work only on text without errors. They return undefined when the text has errors or no longer
+// holds the relationship, so the caller can say why nothing changed.
 
 export type RelationshipEnd = 'source' | 'target';
 
-function relationshipLineIndices(source: readonly string[]): number[] {
-  const block = positionsBlock(source);
-  return source.flatMap((line, index) =>
-    (!block || index < block.open || index > block.close) && isRelationshipLine(line) ? [index] : [],
-  );
+interface LocatedRelationship {
+  readonly relationship: ArchiMateRelationshipSource;
+  readonly sources: ArchiMateSourceMap;
+  readonly anchor?: { readonly written: ArchiMateAnchorSource; readonly sides: ArchiMateAnchor };
 }
 
-function locateRelationship(
-  source: readonly string[],
-  index: number,
-): { readonly at: number; readonly line: RelationshipLine } | undefined {
-  const at = relationshipLineIndices(source)[index];
-  const line = at === undefined ? undefined : parseRelationshipLine(source[at] ?? '');
-  return at === undefined || !line ? undefined : { at, line };
+function locateRelationship(source: string, id: string): LocatedRelationship | undefined {
+  const { model, sources } = validateArchiMate(source);
+  const relationship = sources?.relationships.get(id);
+  if (!sources || !relationship) return undefined;
+  const written = sources.anchors.get(id);
+  const sides = model?.anchors?.find((anchor) => anchor.relationship === id);
+  return { relationship, sources, ...(written && sides && { anchor: { written, sides } }) };
 }
 
-export function readRelationshipLine(source: string, index: number): RelationshipLine | undefined {
-  return locateRelationship(lines(source), index)?.line;
+// How a new anchor names its relationship: a long-form one by its ID, a shorthand one by its line.
+function reference(source: string, relationship: ArchiMateRelationshipSource): string {
+  return relationship.notation === 'longForm'
+    ? textOf(source, relationship.id)
+    : [relationship.source, relationship.connector, relationship.target].map((span) => textOf(source, span)).join(' ');
 }
 
-export function countRelationshipLines(source: string): number {
-  return relationshipLineIndices(lines(source)).length;
+function anchorText(name: string, from: ArchiMateSide | undefined, to: ArchiMateSide | undefined): string {
+  return `${name}${from ? ` from ${from}` : ''}${to ? ` to ${to}` : ''}`;
 }
 
-function generatedId(line: ShorthandLine): string {
-  return `${line.source.text}__${connectorNotation(line.connector.text)?.type ?? 'relationship'}__${line.target.text}`;
+// Rewrites the anchor of a relationship whose ends or connector changed, under the name the changed
+// relationship has. A side pinned on an end that moved to another element goes, since it described that element.
+function followAnchor(source: string, located: LocatedRelationship, name: string, moved?: RelationshipEnd): Splice[] {
+  const { anchor } = located;
+  if (!anchor) return [];
+  const from = moved === 'source' ? undefined : anchor.sides.source;
+  const to = moved === 'target' ? undefined : anchor.sides.target;
+  if (!from && !to) return [removeLines(source, anchor.written.statement)];
+  return [replaceSpan(anchor.written.statement, anchorText(name, from, to))];
 }
 
-function reference(line: RelationshipLine): string {
-  return line.kind === 'longForm' ? line.id.text : `${line.source.text} ${line.connector.text} ${line.target.text}`;
+export function removeRelationship(source: string, id: string): string | undefined {
+  const located = locateRelationship(source, id);
+  if (!located) return undefined;
+  const anchor = located.anchor ? [removeLines(source, located.anchor.written.statement)] : [];
+  return applySplices(source, [removeLines(source, located.relationship.statement), ...anchor]);
 }
 
-// An anchor names a long-form relationship by its ID, and a shorthand one by its line or its generated ID.
-function sameReference(written: string, line: RelationshipLine): boolean {
-  const byLine = parseRelationshipLine(written);
-  if (byLine) return byLine.kind === 'shorthand' && line.kind === 'shorthand' && reference(byLine) === reference(line);
-  return written.trim() === (line.kind === 'longForm' ? line.id.text : generatedId(line));
-}
-
-interface AnchorLine {
-  readonly index: number;
-  readonly indent: string;
-  readonly from: string | undefined;
-  readonly to: string | undefined;
-}
-
-function findAnchor(source: readonly string[], line: RelationshipLine): AnchorLine | undefined {
-  const block = positionsBlock(source);
-  if (!block) return undefined;
-  for (let index = block.open + 1; index < block.close; index++) {
-    const match = /^(\s*)(.+?)((?:\s+(?:from|to)\s+\S+)+)\s*$/u.exec(code(source[index] ?? ''));
-    if (!match || !sameReference(match[2] ?? '', line)) continue;
-    const sides = match[3] ?? '';
-    return {
-      index,
-      indent: match[1] ?? '',
-      from: /\bfrom\s+(\S+)/u.exec(sides)?.[1],
-      to: /\bto\s+(\S+)/u.exec(sides)?.[1],
-    };
-  }
-  return undefined;
-}
-
-function anchorText(indent: string, line: RelationshipLine, from: string | undefined, to: string | undefined): string {
-  return `${indent}${reference(line)}${from ? ` from ${from}` : ''}${to ? ` to ${to}` : ''}`;
-}
-
-// Rewrites or removes the relationship's anchor line after the relationship itself changed. An anchor that
-// still names the relationship and loses no side stays exactly as written.
-function rewriteAnchor(
-  result: string[],
-  before: RelationshipLine,
-  after: RelationshipLine | undefined,
-  dropEnd?: RelationshipEnd,
-): void {
-  if (after && !dropEnd && reference(after) === reference(before)) return;
-  const anchor = findAnchor(result, before);
-  if (!anchor) return;
-  const from = dropEnd === 'source' ? undefined : anchor.from;
-  const to = dropEnd === 'target' ? undefined : anchor.to;
-  if (!after || (!from && !to)) result.splice(anchor.index, 1);
-  else result[anchor.index] = anchorText(anchor.indent, after, from, to);
-}
-
-export function removeRelationship(source: string, index: number): string {
-  const result = lines(source);
-  const found = locateRelationship(result, index);
-  if (!found) return source;
-  result.splice(found.at, 1);
-  rewriteAnchor(result, found.line, undefined);
-  return join(result);
-}
-
-// Rewrites one relationship line and carries its anchor line along. A change that rewrites nothing returns
-// the source exactly as it came in.
-function rewriteRelationship(
+// Moving one end to another element keeps the other end, the type and the label.
+export function reconnectRelationship(
   source: string,
-  index: number,
-  change: (text: string, line: RelationshipLine) => string,
-  dropEnd?: RelationshipEnd,
-): string {
-  const result = lines(source);
-  const found = locateRelationship(result, index);
-  const text = found && result[found.at];
-  if (!found || text === undefined) return source;
-  const rewritten = change(text, found.line);
-  if (rewritten === text) return source;
-  result[found.at] = rewritten;
-  rewriteAnchor(result, found.line, parseRelationshipLine(rewritten), dropEnd);
-  return join(result);
+  id: string,
+  end: RelationshipEnd,
+  element: string,
+): string | undefined {
+  const located = locateRelationship(source, id);
+  if (!located) return undefined;
+  const { relationship } = located;
+  const ends = { source: textOf(source, relationship.source), target: textOf(source, relationship.target) };
+  const moved = { ...ends, [end]: element };
+  const name =
+    relationship.notation === 'longForm'
+      ? textOf(source, relationship.id)
+      : `${moved.source} ${textOf(source, relationship.connector)} ${moved.target}`;
+  return applySplices(source, [replaceSpan(relationship[end], element), ...followAnchor(source, located, name, end)]);
 }
 
-// Moving one end to another element keeps the other end, the type and the label; a side pinned on the old
-// element is dropped, since it described that element.
-export function reconnectRelationship(source: string, index: number, end: RelationshipEnd, to: string): string {
-  return rewriteRelationship(source, index, (text, line) => replaceSpan(text, line[end], to), end);
-}
-
-export function setRelationshipGlyph(source: string, index: number, glyph: string): string {
-  return rewriteRelationship(source, index, (text, line) =>
-    line.kind === 'shorthand' ? replaceSpan(text, line.connector, glyph) : text,
-  );
-}
-
-export function readRelationshipLabel(source: string, index: number): string {
-  const line = readRelationshipLine(source, index);
-  return (line && readLabel(line)) ?? '';
+// Only shorthand writes the type as a connector; a long-form relationship is retyped in the text.
+export function setRelationshipGlyph(source: string, id: string, glyph: string): string | undefined {
+  const located = locateRelationship(source, id);
+  if (located?.relationship.notation !== 'shorthand') return undefined;
+  const { relationship } = located;
+  const name = `${textOf(source, relationship.source)} ${glyph} ${textOf(source, relationship.target)}`;
+  return applySplices(source, [replaceSpan(relationship.connector, glyph), ...followAnchor(source, located, name)]);
 }
 
 // The label clause takes the notation's own form; an empty label removes the clause.
-export function setRelationshipLabel(source: string, index: number, label: string): string {
+export function setRelationshipLabel(source: string, id: string, label: string): string | undefined {
+  const located = locateRelationship(source, id);
+  if (!located) return undefined;
+  const { relationship } = located;
   const trimmed = label.trim();
-  return rewriteRelationship(source, index, (text, line) => {
-    const marker = line.kind === 'longForm' ? ' label ' : ' : ';
-    const clause = trimmed ? marker + JSON.stringify(trimmed) : '';
-    const end = line.statement.end;
-    return replaceSpan(text, line.label ?? { start: end, end }, clause);
-  });
+  const clause = trimmed ? `${relationship.notation === 'longForm' ? 'label' : ':'} ${JSON.stringify(trimmed)}` : '';
+  if (relationship.label) {
+    const change = clause ? replaceSpan(relationship.label, clause) : removeWithSpaceBefore(source, relationship.label);
+    return applySplices(source, [change]);
+  }
+  if (!clause) return source;
+  const end = relationship.statement.endOffset;
+  return applySplices(source, [{ offset: end, endOffset: end, text: ` ${clause}` }]);
 }
 
-export function readAnchor(source: string, index: number): { from?: ArchiMateSide; to?: ArchiMateSide } {
-  const line = readRelationshipLine(source, index);
-  const anchor = line && findAnchor(lines(source), line);
-  return {
-    ...(anchor?.from && { from: anchor.from as ArchiMateSide }),
-    ...(anchor?.to && { to: anchor.to as ArchiMateSide }),
-  };
-}
-
-// Pins the side where one end meets its element; the positions block is created when missing.
+// Pins the side where one end meets its element, or lets it go; the positions block is created when missing.
 export function setAnchor(
   source: string,
-  index: number,
+  id: string,
   end: RelationshipEnd,
   side: ArchiMateSide | undefined,
-): string {
-  const line = readRelationshipLine(source, index);
-  if (!line) return source;
-  const result = withPositionsBlock(lines(source));
-  const anchor = findAnchor(result, line);
-  const from = end === 'source' ? side : anchor?.from;
-  const to = end === 'target' ? side : anchor?.to;
-  const block = positionsBlock(result);
-  if (!block) return source;
-  const indent = indentOf(result[block.open] ?? '') + elementIndent(result);
+): string | undefined {
+  const located = locateRelationship(source, id);
+  if (!located) return undefined;
+  const { anchor, sources } = located;
+  const from = end === 'source' ? side : anchor?.sides.source;
+  const to = end === 'target' ? side : anchor?.sides.target;
   if (anchor) {
-    if (from || to) result[anchor.index] = anchorText(anchor.indent, line, from, to);
-    else result.splice(anchor.index, 1);
-  } else if (from || to) {
-    result.splice(block.close, 0, anchorText(indent, line, from, to));
+    if (!from && !to) return applySplices(source, [removeLines(source, anchor.written.statement)]);
+    // The anchor keeps the name it was written with.
+    const { statement } = anchor.written;
+    const firstSide = Math.min(
+      statement.endOffset,
+      ...[anchor.written.from, anchor.written.to].flatMap((span) => (span ? [span.offset] : [])),
+    );
+    const name = source.slice(statement.offset, firstSide).trimEnd();
+    return applySplices(source, [replaceSpan(statement, anchorText(name, from, to))]);
   }
-  return join(result);
+  if (!from && !to) return source;
+  const block = sources.positionsBlock;
+  if (!block) {
+    const withBlock = join(withPositionsBlock(lines(source)));
+    return withBlock === source ? undefined : setAnchor(withBlock, id, end, side);
+  }
+  const closingLine = source.lastIndexOf('\n', block.endOffset - 1) + 1;
+  const blockLine = source.slice(source.lastIndexOf('\n', block.offset - 1) + 1);
+  const indent = indentOf(blockLine) + elementIndent(lines(source));
+  const line = `${indent}${anchorText(reference(source, located.relationship), from, to)}\n`;
+  return applySplices(source, [{ offset: closingLine, endOffset: closingLine, text: line }]);
 }
 
 // Positions cannot be negative, so making room above or left of the top-left element moves every given
