@@ -26,6 +26,7 @@ export const ui = {
   mClear: byId<HTMLButtonElement>('m-clear'),
   toolSelect: byId<HTMLButtonElement>('tool-select'),
   toolHand: byId<HTMLButtonElement>('tool-hand'),
+  toolConnect: byId<HTMLButtonElement>('tool-connect'),
   exportToggle: byId<HTMLButtonElement>('export-toggle'),
   exportMenu: byId('export-menu'),
   share: byId<HTMLButtonElement>('share'),

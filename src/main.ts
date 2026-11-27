@@ -34,6 +34,7 @@ import { copyText } from './clipboard.ts';
 import { exportDiagram, fileBaseOf } from './export.ts';
 import { buildAddSheet, buildPalette, makeDraggable, type DragPayload } from './palette.ts';
 import { closePicker, openPicker } from './picker.ts';
+import type { RelationshipChoice } from './relationships.ts';
 import { renderDiagram } from './render.ts';
 import { installTooltips } from './tooltip.ts';
 import { decodeShareHash, shareLink } from './share.ts';
@@ -94,6 +95,11 @@ let model: ArchiMateModel | undefined;
 let diagnostics: readonly ArchiMateDiagnostic[] = [];
 let lastSvg: string | undefined;
 let selected: string | null = null;
+let tool: Tool = 'select';
+// Leaving the connect tool returns to this one, so touch screens keep their hand.
+let toolBeforeConnect: Tool = 'select';
+// The relationship type the palette armed the connect tool with, if any.
+let connectGlyph: string | undefined;
 // Two or more selected elements; while it holds any, `selected` is null and no inspector shows.
 let group: readonly string[] = [];
 // A relationship is selected by its place among the relationships, which survives edits that change its ID.
@@ -116,12 +122,18 @@ const canvas: DiagramCanvas = new DiagramCanvas(ui.canvas, ui.stage, ui.overlay,
   snapResize: (id, box) => snapResize(placement(), id, box),
   resize: (id, box) => moveElement(id, box, gridSize(box)),
   connect: (from, to, client) => {
-    openPicker(client, `${nameOf(model, from)} → ${nameOf(model, to)}`, (glyph) => {
+    const link = (glyph: string) =>
       commit(
         addRelationship(source, from, glyph, to),
         `Connected ${nameOf(model, from)} ${glyph} ${nameOf(model, to)}`,
       );
-    });
+    // A relationship type chosen in the palette is drawn at once; otherwise the picker asks which one.
+    if (connectGlyph) link(connectGlyph);
+    else openPicker(client, `${nameOf(model, from)} → ${nameOf(model, to)}`, link);
+  },
+  stopConnecting: () => {
+    stopConnecting();
+    select(null);
   },
   rename: (id) => startRename(id),
   selectRelationship: (id) => selectRelationship(id),
@@ -324,7 +336,9 @@ function selection(): readonly string[] {
   return selected ? [selected] : [];
 }
 
+// Selecting shows handles and the inspector, which belong to editing, so it puts the connect tool away.
 function select(id: string | null, save = true): void {
+  if (id) stopConnecting();
   if (save && id !== selected) saveInspector();
   if (save) saveRelationshipInspector();
   if (id !== selected) detailsOpen = false;
@@ -342,6 +356,7 @@ function selectMany(ids: readonly string[]): void {
     select(unique[0] ?? null);
     return;
   }
+  stopConnecting();
   saveInspector();
   saveRelationshipInspector();
   detailsOpen = false;
@@ -363,6 +378,7 @@ function relationshipsEditable(): boolean {
 }
 
 function selectRelationship(id: string): void {
+  stopConnecting();
   saveInspector();
   saveRelationshipInspector();
   const index = model?.relationships.findIndex((relationship) => relationship.id === id) ?? -1;
@@ -603,6 +619,9 @@ document.addEventListener('keydown', (event) => {
     setTool('select');
   } else if (!command && !event.altKey && event.key.toLowerCase() === 'h') {
     setTool('hand');
+  } else if (!command && !event.altKey && !event.defaultPrevented && event.key.toLowerCase() === 'c') {
+    // The open picker takes C for Composition and marks the key as handled.
+    setTool('connect');
   } else if (command && event.key.toLowerCase() === 'a') {
     event.preventDefault();
     selectMany((model?.elements ?? []).map(({ id }) => id).filter((id) => canvas.boxes.has(id)));
@@ -615,9 +634,11 @@ document.addEventListener('keydown', (event) => {
   } else if (event.key === 'Enter' && selected) {
     event.preventDefault();
     startRename(selected);
-  } else if (event.key === 'Escape') {
+  } else if (event.key === 'Escape' && !event.defaultPrevented) {
+    // An Escape the picker handled only closes the picker, so the connect tool stays on for another pair.
     canvas.cancel();
     closePicker();
+    stopConnecting();
     select(null);
   }
 });
@@ -796,13 +817,18 @@ installImport({
 });
 
 const openGroups = new Set((readStored(groupsKey) ?? 'business').split(',').filter(Boolean).slice(0, 1));
-buildPalette(
+const showArmedRelationship = buildPalette(
   {
     groups: ui.groups,
     rail: ui.railGroups,
     search: ui.search,
     openGroups,
     onToggleGroup: (open) => writeStored(groupsKey, [...open].join(',')),
+    connectors: {
+      armed: () => connectGlyph,
+      // Choosing the armed type again puts it away.
+      choose: (choice) => (connectGlyph === choice.glyph ? stopConnecting() : setTool('connect', choice)),
+    },
   },
   { drop: dropOnCanvas },
 );
@@ -815,12 +841,38 @@ confirmTwice(ui.mClear, () => {
   clearCanvas();
 });
 
-function setTool(tool: Tool): void {
-  canvas.tool = tool;
-  pressOnly([ui.toolSelect, ui.toolHand], tool === 'select' ? ui.toolSelect : ui.toolHand);
+// The connect tool links the next two elements clicked. With a relationship type from the palette it draws
+// that type straight away; from the bottom bar it asks for the type once both ends are known. It stays on
+// for the next line until the canvas is clicked or Escape is pressed.
+function setTool(next: Tool, relationship?: RelationshipChoice): void {
+  const wasConnecting = tool === 'connect';
+  const previousGlyph = connectGlyph;
+  const connecting = next === 'connect';
+  if (connecting && !wasConnecting) {
+    toolBeforeConnect = tool;
+    select(null);
+  }
+  tool = next;
+  connectGlyph = connecting ? relationship?.glyph : undefined;
+  canvas.tool = next;
+  const pressed = { select: ui.toolSelect, hand: ui.toolHand, connect: ui.toolConnect }[next];
+  pressOnly([ui.toolSelect, ui.toolHand, ui.toolConnect], pressed);
+  showArmedRelationship();
+  if (connecting && (!wasConnecting || previousGlyph !== connectGlyph)) {
+    const how = relationship ? `${relationship.name}: click` : 'Click';
+    showToast(`${how} the start element, then the end. Click the canvas to stop.`);
+  }
 }
+function stopConnecting(): void {
+  if (tool === 'connect') setTool(toolBeforeConnect);
+}
+
 ui.toolSelect.addEventListener('click', () => setTool('select'));
 ui.toolHand.addEventListener('click', () => setTool('hand'));
+ui.toolConnect.addEventListener('click', () => {
+  if (tool === 'connect' && !connectGlyph) stopConnecting();
+  else setTool('connect');
+});
 // A finger has no scroll wheel, so touch screens start with the hand and a one-finger drag moves the canvas.
 setTool(matchMedia('(pointer: coarse)').matches ? 'hand' : 'select');
 
@@ -846,6 +898,7 @@ window.addEventListener('blur', () => {
 // View mode still selects, so names, descriptions and relationships can be read, but its fields only show.
 function applyMode(next: Mode): void {
   const viewing = next === 'view';
+  if (viewing) stopConnecting();
   if (viewing) select(null);
   for (const field of [ui.fieldName, ui.fieldDescription, ui.relLabel]) field.readOnly = viewing;
   ui.fieldDescription.placeholder = viewing ? 'No description' : '';

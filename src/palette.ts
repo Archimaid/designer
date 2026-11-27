@@ -1,4 +1,5 @@
 import { iconSvg, paletteGroups, tileIcon, type PaletteGroup, type PaletteType } from './catalogue.ts';
+import { relationshipChoices, type RelationshipChoice } from './relationships.ts';
 
 export type DragPayload =
   { readonly kind: 'type'; readonly type: PaletteType } | { readonly kind: 'place'; readonly id: string };
@@ -91,74 +92,142 @@ function groupIcon(group: PaletteGroup): HTMLSpanElement[] {
   return first ? [tileIcon(first, true)] : [];
 }
 
+// A relationship type is chosen, not dragged: the next two elements clicked on the canvas get the line.
+function relationshipTile(choice: RelationshipChoice, connectors: Connectors): HTMLButtonElement {
+  const tile = document.createElement('button');
+  tile.type = 'button';
+  tile.className = 'tile t-relationship';
+  tile.dataset.glyph = choice.glyph;
+  tile.dataset.tip = `${choice.name}: click two elements to connect them`;
+  tile.setAttribute('aria-pressed', String(connectors.armed() === choice.glyph));
+  tile.append(tileIcon(choice), choice.name);
+  tile.addEventListener('click', () => connectors.choose(choice));
+  return tile;
+}
+
+const relationshipsKey = 'relationships';
+const relationshipsName = 'Relationships';
+const [relationshipsIcon] = relationshipChoices;
+
+export interface Connectors {
+  readonly armed: () => string | undefined;
+  readonly choose: (choice: RelationshipChoice) => void;
+}
+
 export interface PaletteOptions {
   readonly groups: HTMLElement;
   readonly rail: HTMLElement;
   readonly search: HTMLInputElement;
   readonly openGroups: Set<string>;
   readonly onToggleGroup: (open: ReadonlySet<string>) => void;
+  readonly connectors: Connectors;
 }
 
-export function buildPalette(options: PaletteOptions, target: DropTarget): void {
-  const { groups, rail, search, openGroups } = options;
+interface Section {
+  readonly key: string;
+  readonly name: string;
+  readonly className: string;
+  readonly icon: readonly HTMLElement[];
+  readonly total: number;
+  readonly tiles: () => HTMLElement[];
+}
+
+// Returns the function that shows which relationship type is armed, after it changed outside the palette.
+export function buildPalette(options: PaletteOptions, target: DropTarget): () => void {
+  const { groups, rail, search, openGroups, connectors } = options;
+  const matches = (name: string, query: string) => !query || name.toLowerCase().includes(query);
   const render = () => {
     const query = search.value.trim().toLowerCase();
+    const sections: Section[] = paletteGroups.map((group) => {
+      const types = group.types.filter((type) => matches(type.name, query));
+      return {
+        key: group.category,
+        name: group.name,
+        className: `t-${group.category}`,
+        icon: groupIcon(group),
+        total: types.length,
+        tiles: () => types.map((type) => typeTile(type, target)),
+      };
+    });
+    const choices = relationshipChoices.filter((choice) => matches(choice.name, query));
+    sections.push({
+      key: relationshipsKey,
+      name: relationshipsName,
+      className: 't-relationship',
+      icon: relationshipsIcon ? [tileIcon(relationshipsIcon, true)] : [],
+      total: choices.length,
+      tiles: () => choices.map((choice) => relationshipTile(choice, connectors)),
+    });
     groups.replaceChildren();
-    for (const group of paletteGroups) {
-      const types = query ? group.types.filter((type) => type.name.toLowerCase().includes(query)) : group.types;
-      if (!types.length) continue;
-      const open = Boolean(query) || openGroups.has(group.category);
-      const section = document.createElement('div');
-      section.className = 'palette-group';
+    for (const section of sections) {
+      if (!section.total) continue;
+      const open = Boolean(query) || openGroups.has(section.key);
+      const wrapper = document.createElement('div');
+      wrapper.className = 'palette-group';
       const head = document.createElement('button');
       head.type = 'button';
       head.className = 'group-head';
       head.setAttribute('aria-expanded', String(open));
       const name = document.createElement('span');
-      name.className = `group-name t-${group.category}`;
-      name.append(...groupIcon(group), group.name);
+      name.className = `group-name ${section.className}`;
+      name.append(...section.icon, section.name);
       const count = document.createElement('span');
       count.className = 'group-count';
-      count.textContent = open ? '−' : String(group.types.length);
+      count.textContent = open ? '−' : String(section.total);
       head.append(name, count);
-      // One layer is open at a time, so the palette fits without scrolling on most screens.
+      // One group is open at a time, so the palette fits without scrolling on most screens.
       head.addEventListener('click', () => {
-        const wasOpen = openGroups.has(group.category);
+        const wasOpen = openGroups.has(section.key);
         openGroups.clear();
-        if (!wasOpen) openGroups.add(group.category);
+        if (!wasOpen) openGroups.add(section.key);
         options.onToggleGroup(openGroups);
         render();
       });
-      section.append(head);
+      wrapper.append(head);
       if (open) {
         const tiles = document.createElement('div');
         tiles.className = 'tiles appear';
-        for (const type of types) tiles.append(typeTile(type, target));
-        section.append(tiles);
+        tiles.append(...section.tiles());
+        wrapper.append(tiles);
       }
-      groups.append(section);
+      groups.append(wrapper);
     }
   };
   search.addEventListener('input', render);
   render();
 
-  for (const group of paletteGroups) {
+  const railSections = [
+    ...paletteGroups.map((group) => ({
+      label: `${group.name} elements`,
+      name: group.name,
+      className: `t-${group.category}`,
+      icon: group.types[0],
+      tiles: () => group.types.map((type) => typeTile(type, target)),
+    })),
+    {
+      label: relationshipsName,
+      name: relationshipsName,
+      className: 't-relationship',
+      icon: relationshipsIcon,
+      tiles: () => relationshipChoices.map((choice) => relationshipTile(choice, connectors)),
+    },
+  ];
+  for (const section of railSections) {
     const item = document.createElement('div');
     item.className = 'rail-item';
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `rail-btn t-${group.category}`;
-    button.setAttribute('aria-label', `${group.name} elements`);
-    const first = group.types[0];
-    if (first) button.append(iconSvg(first));
+    button.className = `rail-btn ${section.className}`;
+    button.setAttribute('aria-label', section.label);
+    if (section.icon) button.append(iconSvg(section.icon));
     const popout = document.createElement('div');
     popout.className = 'popout';
     const title = document.createElement('span');
     title.className = 'popout-title';
-    title.textContent = group.name;
+    title.textContent = section.name;
     const tiles = document.createElement('div');
     tiles.className = 'tiles';
-    for (const type of group.types) tiles.append(typeTile(type, target));
+    tiles.append(...section.tiles());
     popout.append(title, tiles);
     item.append(button, popout);
     // The rail sits in the middle of the window, so a tall layer's popout moves up to stay on screen.
@@ -171,6 +240,13 @@ export function buildPalette(options: PaletteOptions, target: DropTarget): void 
     item.addEventListener('focusin', keepInView);
     rail.append(item);
   }
+
+  return () => {
+    const armed = connectors.armed();
+    for (const tile of document.querySelectorAll<HTMLElement>('.tile[data-glyph]')) {
+      tile.setAttribute('aria-pressed', String(tile.dataset.glyph === armed));
+    }
+  };
 }
 
 export interface AddSheetOptions {
