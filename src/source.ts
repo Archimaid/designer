@@ -5,7 +5,14 @@ import {
   type ArchiMateLayout,
   type ArchiMateSide,
 } from 'archimaid/language';
-import { connectorGlyphs, connectorNotation, escapeRegExp, identifier, keywords, quotedText } from './grammar.ts';
+import { connectorNotation, escapeRegExp, identifier, keywords, quotedText } from './grammar.ts';
+import {
+  parseRelationshipLine,
+  readLabel,
+  replaceSpan,
+  type RelationshipLine,
+  type ShorthandLine,
+} from './relationship-line.ts';
 
 // Every canvas gesture is one of these pure text edits. The source stays the only state, so the text panel,
 // undo, share links and the renderer all see exactly what the designer wrote.
@@ -90,10 +97,7 @@ function depths(source: readonly string[]): number[] {
 }
 
 function isRelationshipLine(line: string): boolean {
-  const trimmed = code(line).trim();
-  if (trimmed.startsWith('relationship ')) return true;
-  const words = trimmed.split(/\s+/u);
-  return words.length >= 3 && connectorGlyphs.includes(words[1] ?? '');
+  return parseRelationshipLine(line) !== undefined;
 }
 
 function positionsBlock(source: readonly string[]): { open: number; close: number } | undefined {
@@ -408,26 +412,6 @@ export function removeElement(source: string, id: string): string {
 
 export type RelationshipEnd = 'source' | 'target';
 
-interface ShorthandLine {
-  readonly kind: 'shorthand';
-  readonly source: string;
-  readonly glyph: string;
-  readonly target: string;
-}
-
-interface LongFormLine {
-  readonly kind: 'longForm';
-  readonly type: string;
-  readonly id: string;
-  readonly source: string;
-  readonly target: string;
-}
-
-export type RelationshipLine = ShorthandLine | LongFormLine;
-
-const shorthandPattern = /^(\s*)(\S+)(\s+)(\S+)(\s+)(\S+)(.*)$/u;
-const longFormPattern = /^(\s*relationship\s+)(\S+)(\s+)(\S+)(\s+)(\S+)(\s*->\s*)(\S+)(.*)$/u;
-
 function relationshipLineIndices(source: readonly string[]): number[] {
   const block = positionsBlock(source);
   return source.flatMap((line, index) =>
@@ -435,17 +419,17 @@ function relationshipLineIndices(source: readonly string[]): number[] {
   );
 }
 
+function locateRelationship(
+  source: readonly string[],
+  index: number,
+): { readonly at: number; readonly line: RelationshipLine } | undefined {
+  const at = relationshipLineIndices(source)[index];
+  const line = at === undefined ? undefined : parseRelationshipLine(source[at] ?? '');
+  return at === undefined || !line ? undefined : { at, line };
+}
+
 export function readRelationshipLine(source: string, index: number): RelationshipLine | undefined {
-  const all = lines(source);
-  const line = all[relationshipLineIndices(all)[index] ?? -1];
-  if (line === undefined) return undefined;
-  const long = longFormPattern.exec(code(line));
-  if (long) {
-    return { kind: 'longForm', type: long[2] ?? '', id: long[4] ?? '', source: long[6] ?? '', target: long[8] ?? '' };
-  }
-  const short = shorthandPattern.exec(code(line));
-  if (!short) return undefined;
-  return { kind: 'shorthand', source: short[2] ?? '', glyph: short[4] ?? '', target: short[6] ?? '' };
+  return locateRelationship(lines(source), index)?.line;
 }
 
 export function countRelationshipLines(source: string): number {
@@ -453,14 +437,18 @@ export function countRelationshipLines(source: string): number {
 }
 
 function generatedId(line: ShorthandLine): string {
-  return `${line.source}__${connectorNotation(line.glyph)?.type ?? 'relationship'}__${line.target}`;
+  return `${line.source.text}__${connectorNotation(line.connector.text)?.type ?? 'relationship'}__${line.target.text}`;
 }
 
-function sameReference(reference: string, line: RelationshipLine): boolean {
-  const words = reference.trim().split(/\s+/u);
-  if (line.kind === 'longForm') return words.length === 1 && words[0] === line.id;
-  if (words.length === 1) return words[0] === generatedId(line);
-  return words[0] === line.source && words[1] === line.glyph && words[2] === line.target;
+function reference(line: RelationshipLine): string {
+  return line.kind === 'longForm' ? line.id.text : `${line.source.text} ${line.connector.text} ${line.target.text}`;
+}
+
+// An anchor names a long-form relationship by its ID, and a shorthand one by its line or its generated ID.
+function sameReference(written: string, line: RelationshipLine): boolean {
+  const byLine = parseRelationshipLine(written);
+  if (byLine) return byLine.kind === 'shorthand' && line.kind === 'shorthand' && reference(byLine) === reference(line);
+  return written.trim() === (line.kind === 'longForm' ? line.id.text : generatedId(line));
 }
 
 interface AnchorLine {
@@ -487,21 +475,19 @@ function findAnchor(source: readonly string[], line: RelationshipLine): AnchorLi
   return undefined;
 }
 
-function reference(line: RelationshipLine): string {
-  return line.kind === 'longForm' ? line.id : `${line.source} ${line.glyph} ${line.target}`;
-}
-
 function anchorText(indent: string, line: RelationshipLine, from: string | undefined, to: string | undefined): string {
   return `${indent}${reference(line)}${from ? ` from ${from}` : ''}${to ? ` to ${to}` : ''}`;
 }
 
-// Rewrites or removes the relationship's anchor line after the relationship itself changed.
+// Rewrites or removes the relationship's anchor line after the relationship itself changed. An anchor that
+// still names the relationship and loses no side stays exactly as written.
 function rewriteAnchor(
   result: string[],
   before: RelationshipLine,
   after: RelationshipLine | undefined,
   dropEnd?: RelationshipEnd,
 ): void {
+  if (after && !dropEnd && reference(after) === reference(before)) return;
   const anchor = findAnchor(result, before);
   if (!anchor) return;
   const from = dropEnd === 'source' ? undefined : anchor.from;
@@ -512,83 +498,58 @@ function rewriteAnchor(
 
 export function removeRelationship(source: string, index: number): string {
   const result = lines(source);
-  const at = relationshipLineIndices(result)[index];
-  const line = readRelationshipLine(source, index);
-  if (at === undefined || !line) return source;
-  rewriteAnchor(result, line, undefined);
-  result.splice(at, 1);
+  const found = locateRelationship(result, index);
+  if (!found) return source;
+  result.splice(found.at, 1);
+  rewriteAnchor(result, found.line, undefined);
   return join(result);
 }
 
-function rewriteLine(source: string, index: number, change: (line: string) => string): string[] | undefined {
+// Rewrites one relationship line and carries its anchor line along. A change that rewrites nothing returns
+// the source exactly as it came in.
+function rewriteRelationship(
+  source: string,
+  index: number,
+  change: (text: string, line: RelationshipLine) => string,
+  dropEnd?: RelationshipEnd,
+): string {
   const result = lines(source);
-  const at = relationshipLineIndices(result)[index];
-  const line = result[at ?? -1];
-  if (at === undefined || line === undefined) return undefined;
-  result[at] = change(line);
-  return result;
+  const found = locateRelationship(result, index);
+  const text = found && result[found.at];
+  if (!found || text === undefined) return source;
+  const rewritten = change(text, found.line);
+  if (rewritten === text) return source;
+  result[found.at] = rewritten;
+  rewriteAnchor(result, found.line, parseRelationshipLine(rewritten), dropEnd);
+  return join(result);
 }
 
 // Moving one end to another element keeps the other end, the type and the label; a side pinned on the old
 // element is dropped, since it described that element.
 export function reconnectRelationship(source: string, index: number, end: RelationshipEnd, to: string): string {
-  const before = readRelationshipLine(source, index);
-  if (!before) return source;
-  const after: RelationshipLine = end === 'source' ? { ...before, source: to } : { ...before, target: to };
-  const result = rewriteLine(source, index, (line) =>
-    before.kind === 'longForm'
-      ? line.replace(longFormPattern, (...groups: string[]) => {
-          const parts = groups.slice(1, 10);
-          parts[end === 'source' ? 5 : 7] = to;
-          return parts.join('');
-        })
-      : line.replace(shorthandPattern, (...groups: string[]) => {
-          const parts = groups.slice(1, 8);
-          parts[end === 'source' ? 1 : 5] = to;
-          return parts.join('');
-        }),
-  );
-  if (!result) return source;
-  rewriteAnchor(result, before, after, end);
-  return join(result);
+  return rewriteRelationship(source, index, (text, line) => replaceSpan(text, line[end], to), end);
 }
 
 export function setRelationshipGlyph(source: string, index: number, glyph: string): string {
-  const before = readRelationshipLine(source, index);
-  if (before?.kind !== 'shorthand') return source;
-  const result = rewriteLine(source, index, (line) =>
-    line.replace(shorthandPattern, (...groups: string[]) => {
-      const parts = groups.slice(1, 8);
-      parts[3] = glyph;
-      return parts.join('');
-    }),
+  return rewriteRelationship(source, index, (text, line) =>
+    line.kind === 'shorthand' ? replaceSpan(text, line.connector, glyph) : text,
   );
-  if (!result) return source;
-  rewriteAnchor(result, before, { ...before, glyph });
-  return join(result);
 }
 
 export function readRelationshipLabel(source: string, index: number): string {
-  const all = lines(source);
-  const line = code(all[relationshipLineIndices(all)[index] ?? -1] ?? '');
-  const match = new RegExp(`(?::|\\blabel)\\s*(${quotedText})\\s*$`, 'u').exec(line);
-  return match?.[1] ? (JSON.parse(match[1]) as string) : '';
+  const line = readRelationshipLine(source, index);
+  return (line && readLabel(line)) ?? '';
 }
 
+// The label clause takes the notation's own form; an empty label removes the clause.
 export function setRelationshipLabel(source: string, index: number, label: string): string {
-  const before = readRelationshipLine(source, index);
-  if (!before) return source;
   const trimmed = label.trim();
-  const result = rewriteLine(source, index, (line) => {
-    const comment = /\s*%%.*$/u.exec(line)?.[0] ?? '';
-    const body = line.slice(0, line.length - comment.length);
-    const marker = before.kind === 'longForm' ? '\\s+label\\s*' : '\\s*:\\s*';
-    const bare = body.replace(new RegExp(`${marker}${quotedText}\\s*$`, 'u'), '');
-    if (!trimmed) return bare + comment;
-    const prefix = before.kind === 'longForm' ? ' label ' : ' : ';
-    return `${bare}${prefix}${JSON.stringify(trimmed)}${comment}`;
+  return rewriteRelationship(source, index, (text, line) => {
+    const marker = line.kind === 'longForm' ? ' label ' : ' : ';
+    const clause = trimmed ? marker + JSON.stringify(trimmed) : '';
+    const end = line.statement.end;
+    return replaceSpan(text, line.label ?? { start: end, end }, clause);
   });
-  return result ? join(result) : source;
 }
 
 export function readAnchor(source: string, index: number): { from?: ArchiMateSide; to?: ArchiMateSide } {
