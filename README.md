@@ -41,7 +41,7 @@ npm run og
 
 ## Deploy to Cloudflare
 
-The designer deploys as a Cloudflare Worker that serves static files, like the playground. `wrangler.jsonc` points Wrangler at `dist`. Connect the repository to a Worker named `archimaid-designer` with these build settings:
+The designer deploys as a Cloudflare Worker that serves static files, like the playground. `wrangler.jsonc` points Wrangler at `dist`. Connect the repository to a Worker named `designer` with these build settings:
 
 | Setting               | Value                      |
 | --------------------- | -------------------------- |
