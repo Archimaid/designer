@@ -224,6 +224,7 @@ export class DiagramCanvas {
       if (id) events.rename(id);
     });
     root.addEventListener('wheel', (event) => this.wheel(event), { passive: false });
+    this.listenForSpace();
     this.applyTransform();
   }
 
@@ -240,9 +241,24 @@ export class DiagramCanvas {
     this.root.classList.toggle('is-hand', this.handActive);
   }
 
-  set spaceHeld(held: boolean) {
+  private holdSpace(held: boolean): void {
     this.holdingSpace = held;
     this.root.classList.toggle('is-hand', this.handActive);
+  }
+
+  // Space moves the canvas only while it is held, and only when it would not press a focused control.
+  private listenForSpace(): void {
+    document.addEventListener('keydown', (event) => {
+      const onCanvas =
+        event.target === document.body || (event.target instanceof Node && this.root.contains(event.target));
+      if (event.key !== ' ' || !onCanvas) return;
+      event.preventDefault();
+      this.holdSpace(true);
+    });
+    document.addEventListener('keyup', (event) => {
+      if (event.key === ' ') this.holdSpace(false);
+    });
+    window.addEventListener('blur', () => this.holdSpace(false));
   }
 
   // Space changes nothing for the connect tool, so it keeps the connect cursors rather than promising a grab.
