@@ -3,15 +3,25 @@ import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/600.css';
 import './styles.css';
 
-import { validateArchiMate, type ArchiMateDiagnostic, type ArchiMateModel } from 'archimaid/language';
-import { DiagramCanvas, type End, type Tool } from './canvas.ts';
-import { gridUnit, type Point, type Side } from './geometry.ts';
+import type { ArchiMateRelationship, ArchiMateSide } from 'archimaid/language';
+import { DiagramCanvas, type Tool } from './canvas.ts';
+import { DiagramDocument } from './document.ts';
+import { defaultItemSize, gridUnit, type Point } from './geometry.ts';
 import { notePaletteType, paletteType, tileIcon } from './catalogue.ts';
-import { confirmTwice, createDropdown, isTyping, pressOnly } from './dom.ts';
+import { confirmTwice, createDropdown, isCoarsePointer, isTyping, pressOnly } from './dom.ts';
 import { plural, sideNames } from './format.ts';
 import { renderElementInspector, renderRelationshipInspector, renderSelectionBar } from './inspector.ts';
-import { changedLineNumbers, History } from './history.ts';
+import { changedLineNumbers } from './history.ts';
 import { isNote, nameOf, parentsOf, positionOf } from './model.ts';
+import {
+  nothingSelected,
+  reconcile,
+  selectedElement,
+  selectedIds,
+  selectedRelationship,
+  selectionOf,
+  type Selection,
+} from './selection.ts';
 import {
   gridSize,
   moveItem,
@@ -33,7 +43,7 @@ import { convertNotation, type Notation } from './notation.ts';
 import { copyText } from './clipboard.ts';
 import { exportDiagram, fileBaseOf } from './export.ts';
 import { buildAddSheet, buildPalette, makeDraggable, type DragPayload } from './palette.ts';
-import { closePicker, openPicker } from './picker.ts';
+import { closePicker, openPicker, pickerWidth } from './picker.ts';
 import type { RelationshipChoice } from './relationships.ts';
 import { renderDiagram } from './render.ts';
 import { installTooltips } from './tooltip.ts';
@@ -63,6 +73,7 @@ import {
   usedWords,
   type GridPoint,
   type GridSize,
+  type RelationshipEnd,
 } from './source.ts';
 import { STAR_REQUEST_MS, starRequest } from './star-request.ts';
 import { readStored, writeStored } from './storage.ts';
@@ -72,7 +83,6 @@ const titleKey = 'archimaid.designer.title';
 const collapsedKey = 'archimaid.designer.palette-collapsed';
 const groupsKey = 'archimaid.designer.open-groups';
 const textEditDelayMs = 300;
-const historyMergeMs = 800;
 
 let detailsOpen = false;
 
@@ -89,33 +99,24 @@ function syncSheets(): void {
   ui.scrim.hidden = !phone.matches || !(detailsOpen || !ui.addSheet.classList.contains('is-hidden'));
 }
 
-// The source text is the only document state; everything else is derived from it or is view state.
-let source = '';
-let model: ArchiMateModel | undefined;
-let diagnostics: readonly ArchiMateDiagnostic[] = [];
+const doc = new DiagramDocument();
 let lastSvg: string | undefined;
-let selected: string | null = null;
+let current: Selection = nothingSelected;
 let tool: Tool = 'select';
 // Leaving the connect tool returns to this one, so touch screens keep their hand.
 let toolBeforeConnect: Tool = 'select';
 // The relationship type the palette armed the connect tool with, if any.
 let connectGlyph: string | undefined;
-// Two or more selected elements; while it holds any, `selected` is null and no inspector shows.
-let group: readonly string[] = [];
-// A relationship is selected by its place among the relationships, which survives edits that change its ID.
-let selectedRelationship: number | null = null;
 let firstRender = true;
-const edits = new History();
-let lastTextEdit = 0;
 const afterRender: (() => void)[] = [];
 
 const canvas: DiagramCanvas = new DiagramCanvas(ui.canvas, ui.stage, ui.overlay, {
   select: (id) => select(id),
   toggle: (id) => {
-    const current = selection();
-    selectMany(current.includes(id) ? current.filter((other) => other !== id) : [...current, id]);
+    const ids = selectedIds(current);
+    setSelection(selectionOf(ids.includes(id) ? ids.filter((other) => other !== id) : [...ids, id]));
   },
-  selectMany: (ids) => selectMany(ids),
+  selectMany: (ids) => setSelection(selectionOf(ids)),
   snap: (id, topLeft) => snapMove(placement(), id, topLeft),
   move: (lead, topLeft, followers) =>
     followers.length ? moveGroup(lead, topLeft, followers) : moveElement(lead, topLeft),
@@ -124,16 +125,16 @@ const canvas: DiagramCanvas = new DiagramCanvas(ui.canvas, ui.stage, ui.overlay,
   connect: (from, to, client) => {
     const link = (glyph: string) =>
       commit(
-        addRelationship(source, from, glyph, to),
-        `Connected ${nameOf(model, from)} ${glyph} ${nameOf(model, to)}`,
+        addRelationship(doc.source, from, glyph, to),
+        `Connected ${nameOf(doc.model, from)} ${glyph} ${nameOf(doc.model, to)}`,
       );
     // A relationship type chosen in the palette is drawn at once; otherwise the picker asks which one.
     if (connectGlyph) link(connectGlyph);
-    else openPicker(client, `${nameOf(model, from)} → ${nameOf(model, to)}`, link);
+    else openPicker(client, `${nameOf(doc.model, from)} → ${nameOf(doc.model, to)}`, link);
   },
   stopConnecting: () => {
     stopConnecting();
-    select(null);
+    setSelection(nothingSelected);
   },
   rename: (id) => startRename(id),
   selectRelationship: (id) => selectRelationship(id),
@@ -146,11 +147,7 @@ canvas.zoomListener = (scale) => {
 const editor = createSourceEditor(ui.editor, {
   initialSource: '',
   onChange: (text) => {
-    // Typing is one history step per pause, not one per keystroke.
-    const now = Date.now();
-    if (now - lastTextEdit > historyMergeMs) edits.record(source);
-    lastTextEdit = now;
-    source = text;
+    doc.type(text, Date.now());
     persist();
     scheduleRefresh(textEditDelayMs);
   },
@@ -159,19 +156,11 @@ const editor = createSourceEditor(ui.editor, {
 
 // Editing
 
-const hasErrors = (text: string): boolean =>
-  validateArchiMate(text).diagnostics.some(({ severity }) => severity === 'error');
-
 function commit(next: string, message?: string): void {
-  if (next === source) return;
-  // The canvas never turns valid text into invalid text; a refused edit leaves the diagram as it was.
-  if (hasErrors(next) && !hasErrors(source)) {
-    showToast('That change would break the text, so it was not applied.');
-    return;
-  }
-  edits.record(source);
-  const before = source;
-  source = next;
+  const before = doc.source;
+  const outcome = doc.commit(next);
+  if (outcome === 'refused') showToast('That change would break the text, so it was not applied.');
+  if (outcome !== 'applied') return;
   persist();
   editor.rewriteSource(next);
   editor.markChanged(changedLineNumbers(before, next));
@@ -180,29 +169,27 @@ function commit(next: string, message?: string): void {
   void refresh();
 }
 
-function replaceAll(next: string): void {
-  source = next;
+// Shows a text that replaced the whole document, such as an undo or an opened diagram.
+function showReplaced(): void {
   persist();
-  editor.rewriteSource(next);
+  editor.rewriteSource(doc.source);
   void refresh();
 }
 
 function undo(): void {
-  const previous = edits.undo(source);
-  if (previous !== undefined) replaceAll(previous);
+  if (doc.undo()) showReplaced();
 }
 
 function redo(): void {
-  const next = edits.redo(source);
-  if (next !== undefined) replaceAll(next);
+  if (doc.redo()) showReplaced();
 }
 
 function persist(): void {
-  showStorageState(writeStored(sourceKey, source) ? 'saved' : 'blocked');
+  showStorageState(writeStored(sourceKey, doc.source) ? 'saved' : 'blocked');
 }
 
 function placement(): Placement {
-  return { model, boxes: canvas.boxes, headerOf: (id) => canvas.headerOf(id) };
+  return { model: doc.model, boxes: canvas.boxes, headerOf: (id) => canvas.headerOf(id) };
 }
 
 // The view follows a shift that made room above or left of the others, once the shifted diagram is drawn.
@@ -211,17 +198,17 @@ function applyShift({ x, y }: GridPoint): void {
 }
 
 function moveElement(id: string, topLeft: Point, size?: GridSize): void {
-  const custom = model?.layout === 'custom';
-  const moved = moveItem(placement(), source, id, topLeft, size);
+  const custom = doc.model?.layout === 'custom';
+  const moved = moveItem(placement(), doc.source, id, topLeft, size);
   applyShift(moved.shift);
   const done = size
-    ? `Resized ${nameOf(model, id)} · size ${size.width}x${size.height}`
-    : `Moved ${nameOf(model, id)} · ${id} at ${moved.grid.x} ${moved.grid.y}`;
+    ? `Resized ${nameOf(doc.model, id)} · size ${size.width}x${size.height}`
+    : `Moved ${nameOf(doc.model, id)} · ${id} at ${moved.grid.x} ${moved.grid.y}`;
   commit(moved.text, custom ? layoutNote(done) : 'Switched to custom layout');
 }
 
 function moveGroup(lead: string, topLeft: Point, followers: readonly string[]): void {
-  const moved = moveItems(placement(), source, lead, topLeft, followers);
+  const moved = moveItems(placement(), doc.source, lead, topLeft, followers);
   // A drop on the spot it started from changes nothing, so only the drawing is put back.
   if (!moved) {
     void refresh();
@@ -229,29 +216,29 @@ function moveGroup(lead: string, topLeft: Point, followers: readonly string[]): 
   }
   applyShift(moved.shift);
   const note = `Moved ${followers.length + 1} elements`;
-  commit(moved.text, model?.layout === 'custom' ? layoutNote(note) : 'Switched to custom layout');
+  commit(moved.text, doc.model?.layout === 'custom' ? layoutNote(note) : 'Switched to custom layout');
 }
 
 function dropOnCanvas(payload: DragPayload, client: Point | undefined): void {
   const rect = ui.canvas.getBoundingClientRect();
   const at = client ?? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   const point = canvas.layoutPoint(at.x, at.y);
-  const topLeft = { x: point.x - 70, y: point.y - 30 };
+  const topLeft = { x: point.x - defaultItemSize.width / 2, y: point.y - defaultItemSize.height / 2 };
   if (payload.kind === 'place') {
-    const placed = placeAt(placement(), source, payload.id, rawGridFor(placement(), payload.id, topLeft));
+    const placed = placeAt(placement(), doc.source, payload.id, rawGridFor(placement(), payload.id, topLeft));
     applyShift(placed.shift);
-    commit(placed.text, layoutNote(`Placed ${nameOf(model, payload.id)}`));
+    commit(placed.text, layoutNote(`Placed ${nameOf(doc.model, payload.id)}`));
     return;
   }
   const { type } = payload;
   // The ID comes from the default name, so it follows the name the person types next.
-  const id = idFromName(type.label, usedWords(source));
+  const id = idFromName(type.label, usedWords(doc.source));
   const added =
     type === notePaletteType
-      ? addNote(source, id, type.label)
-      : addElement(source, { type: type.key, id, name: type.label });
+      ? addNote(doc.source, id, type.label)
+      : addElement(doc.source, { type: type.key, id, name: type.label });
   let next = added;
-  if (model?.layout === 'custom') {
+  if (doc.model?.layout === 'custom') {
     const placed = placeAt(placement(), added, id, rawGridFor(placement(), id, topLeft));
     applyShift(placed.shift);
     next = placed.text;
@@ -265,16 +252,16 @@ function dropOnCanvas(payload: DragPayload, client: Point | undefined): void {
 
 // The ID follows the name until someone gives it a name of its own.
 function rename(id: string, name: string): string {
-  if (isNote(model, id)) return setNoteText(source, id, name);
-  const oldName = nameOf(model, id);
-  let next = renameElement(source, id, name);
-  const taken = usedWords(source);
+  if (isNote(doc.model, id)) return setNoteText(doc.source, id, name);
+  const oldName = nameOf(doc.model, id);
+  let next = renameElement(doc.source, id, name);
+  const taken = usedWords(doc.source);
   taken.delete(id);
   if (idFromName(oldName, taken) === id) {
     const newId = idFromName(name, taken);
     if (newId !== id) {
       next = renameId(next, id, newId);
-      if (selected === id) selected = newId;
+      if (selectedElement(current) === id) current = { kind: 'element', id: newId };
     }
   }
   return next;
@@ -286,28 +273,28 @@ function startRename(id: string): void {
   ui.selectionBar.classList.add('is-hidden');
   canvas.startRename(
     id,
-    nameOf(model, id),
+    nameOf(doc.model, id),
     (name) => commit(rename(id, name), `Saved “${name}” to the text`),
     showInspector,
   );
 }
 
 function deleteSelected(): void {
-  const ids = selection();
+  const ids = selectedIds(current);
   const [first] = ids;
   if (first === undefined) return;
-  const one = isNote(model, first) ? 'the note' : nameOf(model, first);
+  const one = isNote(doc.model, first) ? 'the note' : nameOf(doc.model, first);
   const message = ids.length === 1 ? `Deleted ${one}` : `Deleted ${ids.length} items`;
   select(null, false);
   commit(
-    ids.reduce((text, id) => removeElement(text, id), source),
+    ids.reduce((text, id) => removeElement(text, id), doc.source),
     message,
   );
 }
 
 function clearCanvas(): void {
   select(null, false);
-  commit(clearDiagram(source));
+  commit(clearDiagram(doc.source));
   showToast('Cleared the canvas', { label: 'Undo', run: undo });
 }
 
@@ -318,52 +305,39 @@ let inspected: string | null = null;
 // Leaving a field, the element or the inspector writes pending edits to the text.
 function saveInspector(): void {
   const id = inspected;
-  if (!id || !model?.elements.some((element) => element.id === id)) return;
-  let next = source;
+  if (!id || !doc.model?.elements.some((element) => element.id === id)) return;
+  let next = doc.source;
   const name = ui.fieldName.value.trim();
-  if (name && name !== nameOf(model, id)) next = rename(id, name);
-  const currentId = selected === id ? id : (selected ?? id);
+  if (name && name !== nameOf(doc.model, id)) next = rename(id, name);
+  const currentId = selectedElement(current) ?? id;
   const description = ui.fieldDescription.value;
   if (description.trim() !== readDescription(next, currentId)) next = setDescription(next, currentId, description);
-  if (next !== source) {
-    inspected = selected;
-    commit(next, `Saved “${name || nameOf(model, id)}” to the text`);
+  if (next !== doc.source) {
+    inspected = selectedElement(current);
+    commit(next, `Saved “${name || nameOf(doc.model, id)}” to the text`);
   }
 }
 
-function selection(): readonly string[] {
-  if (group.length) return group;
-  return selected ? [selected] : [];
-}
-
-// Selecting shows handles and the inspector, which belong to editing, so it puts the connect tool away.
 function select(id: string | null, save = true): void {
-  if (id) stopConnecting();
-  if (save && id !== selected) saveInspector();
-  if (save) saveRelationshipInspector();
-  if (id !== selected) detailsOpen = false;
-  selected = id;
-  group = [];
-  selectedRelationship = null;
-  canvas.setSelection(selection());
-  showInspector();
-  showRelationshipInspector();
+  setSelection(id ? { kind: 'element', id } : nothingSelected, save);
 }
 
-function selectMany(ids: readonly string[]): void {
-  const unique = [...new Set(ids)];
-  if (unique.length < 2) {
-    select(unique[0] ?? null);
-    return;
-  }
-  stopConnecting();
-  saveInspector();
-  saveRelationshipInspector();
-  detailsOpen = false;
-  selected = null;
-  group = unique;
-  selectedRelationship = null;
-  canvas.setSelection(group);
+function drawSelection(): void {
+  const relationship = selectedRelationshipModel();
+  if (relationship) canvas.setRelationshipSelection(relationship.id);
+  else canvas.setSelection(selectedIds(current));
+}
+
+// Every change of selection first writes what the inspectors hold. Selecting shows handles and the
+// inspector, which belong to editing, so it puts the connect tool away.
+function setSelection(next: Selection, save = true): void {
+  if (next.kind !== 'none') stopConnecting();
+  const elementChanged = selectedElement(next) !== selectedElement(current);
+  if (save && elementChanged) saveInspector();
+  if (save) saveRelationshipInspector();
+  if (elementChanged) detailsOpen = false;
+  current = next;
+  drawSelection();
   showInspector();
   showRelationshipInspector();
 }
@@ -372,74 +346,79 @@ function selectMany(ids: readonly string[]): void {
 
 // Relationship edits address lines by position, which only works while the text and the model agree.
 function relationshipsEditable(): boolean {
-  if (model && countRelationshipLines(source) === model.relationships.length) return true;
+  if (doc.model && countRelationshipLines(doc.source) === doc.model.relationships.length) return true;
   showToast('Fix the text first: its relationships do not match the diagram.');
   return false;
 }
 
-function selectRelationship(id: string): void {
-  stopConnecting();
-  saveInspector();
-  saveRelationshipInspector();
-  const index = model?.relationships.findIndex((relationship) => relationship.id === id) ?? -1;
-  selected = null;
-  selectedRelationship = index >= 0 ? index : null;
-  canvas.setRelationshipSelection(index >= 0 ? id : null);
-  showInspector();
-  showRelationshipInspector();
+function relationshipIndex(id: string): number {
+  return doc.model?.relationships.findIndex((relationship) => relationship.id === id) ?? -1;
 }
 
-function reconnect(id: string, end: End, element: string, side: Side): void {
-  const index = model?.relationships.findIndex((relationship) => relationship.id === id) ?? -1;
-  const relationship = model?.relationships[index];
+function selectedRelationshipModel(): ArchiMateRelationship | undefined {
+  const index = selectedRelationship(current);
+  return index === null ? undefined : doc.model?.relationships[index];
+}
+
+function selectRelationship(id: string): void {
+  const index = relationshipIndex(id);
+  setSelection(index >= 0 ? { kind: 'relationship', index } : nothingSelected);
+}
+
+function reconnect(id: string, end: RelationshipEnd, element: string, side: ArchiMateSide): void {
+  const index = relationshipIndex(id);
+  const relationship = doc.model?.relationships[index];
   if (!relationship || !relationshipsEditable()) return;
   const which = end === 'source' ? 'start' : 'end';
   if (relationship[end] === element) {
-    const note = model?.layout === 'custom' ? '' : ' (used in custom layout)';
+    const note = doc.model?.layout === 'custom' ? '' : ' (used in custom layout)';
     commit(
-      setAnchor(source, index, end, side),
+      setAnchor(doc.source, index, end, side),
       layoutNote(`Pinned the ${which} to the ${sideNames[side]} side${note}`),
     );
   } else {
-    commit(reconnectRelationship(source, index, end, element), `Moved the ${which} to ${nameOf(model, element)}`);
+    commit(
+      reconnectRelationship(doc.source, index, end, element),
+      `Moved the ${which} to ${nameOf(doc.model, element)}`,
+    );
   }
 }
 
 function saveRelationshipInspector(): void {
-  const index = selectedRelationship;
-  if (index === null || !model?.relationships[index] || ui.relInspector.classList.contains('is-hidden')) return;
+  const index = selectedRelationship(current);
+  if (index === null || !doc.model?.relationships[index] || ui.relInspector.classList.contains('is-hidden')) return;
   const label = ui.relLabel.value.trim();
-  if (label === readRelationshipLabel(source, index) || !relationshipsEditable()) return;
-  commit(setRelationshipLabel(source, index, label), label ? `Labelled “${label}”` : 'Removed the label');
+  if (label === readRelationshipLabel(doc.source, index) || !relationshipsEditable()) return;
+  commit(setRelationshipLabel(doc.source, index, label), label ? `Labelled “${label}”` : 'Removed the label');
 }
 
 function showRelationshipInspector(): void {
-  const index = selectedRelationship;
-  const relationship = index === null ? undefined : model?.relationships[index];
+  const index = selectedRelationship(current);
+  const relationship = selectedRelationshipModel();
   ui.relInspector.classList.toggle('is-hidden', !relationship);
   syncSheets();
-  if (model && relationship && index !== null) renderRelationshipInspector(relationship, index, model, source);
+  if (doc.model && relationship && index !== null)
+    renderRelationshipInspector(relationship, index, doc.model, doc.source);
 }
 
 function deleteRelationship(): void {
-  const index = selectedRelationship;
+  const index = selectedRelationship(current);
   if (index === null || !relationshipsEditable()) return;
-  selectedRelationship = null;
-  canvas.setRelationshipSelection(null);
-  showRelationshipInspector();
-  commit(removeRelationship(source, index), 'Deleted the relationship');
+  setSelection(nothingSelected, false);
+  commit(removeRelationship(doc.source, index), 'Deleted the relationship');
 }
 
 function showInspector(): void {
-  const element = selected ? model?.elements.find(({ id }) => id === selected) : undefined;
+  const selected = selectedElement(current);
+  const element = selected ? doc.model?.elements.find(({ id }) => id === selected) : undefined;
   if (!element) detailsOpen = false;
   ui.inspector.classList.toggle('is-hidden', !element || (phone.matches && !detailsOpen));
   ui.selectionBar.classList.toggle('is-hidden', !element || !phone.matches || detailsOpen);
   syncSheets();
   inspected = element?.id ?? null;
-  if (!model || !element) return;
+  if (!doc.model || !element) return;
   renderSelectionBar(element);
-  renderElementInspector(element, model, source);
+  renderElementInspector(element, doc.model, doc.source);
 }
 
 // Rendering
@@ -453,19 +432,17 @@ function scheduleRefresh(delay: number): void {
 
 async function refresh(): Promise<void> {
   clearTimeout(refreshTimer);
-  const result = validateArchiMate(source);
-  diagnostics = result.diagnostics;
-  if (result.model) model = result.model;
-  showStatus(editor, { source, model, diagnostics });
+  doc.validate();
+  showStatus(editor, { source: doc.source, model: doc.model, diagnostics: doc.diagnostics });
   updateChrome();
-  const errors = diagnostics.filter(({ severity }) => severity === 'error');
+  const errors = doc.diagnostics.filter(({ severity }) => severity === 'error');
   ui.errorChip.hidden = errors.length === 0;
   if (errors.length) {
     const [first] = errors;
     ui.errorMessage.textContent = `Line ${first?.line}: ${first?.message} Showing the last valid diagram.`;
     return;
   }
-  const outcome = await renderDiagram(source);
+  const outcome = await renderDiagram(doc.source);
   if (outcome.kind === 'superseded') return;
   if (outcome.kind === 'failed') {
     ui.errorChip.hidden = false;
@@ -474,16 +451,8 @@ async function refresh(): Promise<void> {
   }
   lastSvg = outcome.svg;
   canvas.setSvg(outcome.svg);
-  if (selected && !canvas.boxes.has(selected)) selected = null;
-  group = group.filter((id) => canvas.boxes.has(id));
-  if (group.length === 1) {
-    selected = group[0] ?? null;
-    group = [];
-  }
-  const relationship = selectedRelationship === null ? undefined : model?.relationships[selectedRelationship];
-  if (!relationship) selectedRelationship = null;
-  if (relationship) canvas.setRelationshipSelection(relationship.id);
-  else canvas.setSelection(selection());
+  current = reconcile(current, (id) => canvas.boxes.has(id), doc.model?.relationships.length ?? 0);
+  drawSelection();
   showInspector();
   showRelationshipInspector();
   updateTray();
@@ -502,7 +471,7 @@ function selectNotation(notation: Notation): void {
   const name = notation === 'long' ? 'long form' : 'shorthand';
   const keptNote = (kept: number): string =>
     kept > 0 ? ` ${plural(kept, 'relationship')} stay in long form because other lines refer to their IDs.` : '';
-  const result = convertNotation(source, notation);
+  const result = convertNotation(doc.source, notation);
   switch (result.kind) {
     case 'converted':
       commit(result.source, `Rewrote ${plural(result.converted, 'relationship')} in ${name}.${keptNote(result.kept)}`);
@@ -520,12 +489,12 @@ function selectNotation(notation: Notation): void {
 }
 
 function updateChrome(): void {
-  const layout = readLayout(source);
+  const layout = readLayout(doc.source);
   const custom = layout === 'custom';
   pressOnly([ui.layoutAuto, ui.layoutCustom], custom ? ui.layoutCustom : ui.layoutAuto);
-  ui.undo.disabled = !edits.canUndo;
-  ui.redo.disabled = !edits.canRedo;
-  const empty = clearDiagram(source) === source;
+  ui.undo.disabled = !doc.canUndo;
+  ui.redo.disabled = !doc.canRedo;
+  const empty = clearDiagram(doc.source) === doc.source;
   document.body.classList.toggle('is-empty', isBlank());
   ui.clear.disabled = empty;
   ui.mClear.disabled = empty;
@@ -533,15 +502,15 @@ function updateChrome(): void {
 
 // Nothing to look at, which is when View mode asks for a diagram and a stray paste deserves an explanation.
 function isBlank(): boolean {
-  return !model?.elements.length;
+  return !doc.model?.elements.length;
 }
 
 function updateTray(): void {
   for (const chip of ui.tray.querySelectorAll('.tile')) chip.remove();
-  const nested = parentsOf(model);
+  const nested = parentsOf(doc.model);
   const unplaced =
-    model?.layout === 'custom'
-      ? model.elements.filter((element) => !nested.has(element.id) && !positionOf(model, element.id))
+    doc.model?.layout === 'custom'
+      ? doc.model.elements.filter((element) => !nested.has(element.id) && !positionOf(doc.model, element.id))
       : [];
   ui.tray.hidden = unplaced.length === 0;
   // The palette reaches down to the tray, or to the bottom margin when there is nothing unplaced.
@@ -565,7 +534,7 @@ function fit(animate = false): void {
     return;
   }
   const paletteOpen = !ui.palette.classList.contains('is-hidden');
-  const inspectorOpen = selected !== null || selectedRelationship !== null;
+  const inspectorOpen = current.kind === 'element' || current.kind === 'relationship';
   canvas.fit(
     {
       left: { view: 40, code: codeWidth() + 48, design: paletteOpen ? 408 : 100 }[currentMode()],
@@ -585,7 +554,7 @@ function setCollapsed(collapsed: boolean): void {
 }
 
 function runExport(kind: string): void {
-  exportDiagram(kind, source, lastSvg, fileBaseOf(ui.title.value))
+  exportDiagram(kind, doc.source, lastSvg, fileBaseOf(ui.title.value))
     .then((downloaded) => {
       const ask = downloaded ? starRequest() : undefined;
       if (ask) showToast('Exported. Enjoying Archimaid?', ask, STAR_REQUEST_MS);
@@ -624,16 +593,16 @@ document.addEventListener('keydown', (event) => {
     setTool('connect');
   } else if (command && event.key.toLowerCase() === 'a') {
     event.preventDefault();
-    selectMany((model?.elements ?? []).map(({ id }) => id).filter((id) => canvas.boxes.has(id)));
-  } else if ((event.key === 'Delete' || event.key === 'Backspace') && selectedRelationship !== null) {
+    setSelection(selectionOf((doc.model?.elements ?? []).map(({ id }) => id).filter((id) => canvas.boxes.has(id))));
+  } else if ((event.key === 'Delete' || event.key === 'Backspace') && current.kind === 'relationship') {
     event.preventDefault();
     deleteRelationship();
-  } else if ((event.key === 'Delete' || event.key === 'Backspace') && selection().length) {
+  } else if ((event.key === 'Delete' || event.key === 'Backspace') && selectedIds(current).length) {
     event.preventDefault();
     deleteSelected();
-  } else if (event.key === 'Enter' && selected) {
+  } else if (event.key === 'Enter' && current.kind === 'element') {
     event.preventDefault();
-    startRename(selected);
+    startRename(current.id);
   } else if (event.key === 'Escape' && !event.defaultPrevented) {
     // An Escape the picker handled only closes the picker, so the connect tool stays on for another pair.
     canvas.cancel();
@@ -663,7 +632,7 @@ ui.barDetails.addEventListener('click', () => {
   showInspector();
 });
 ui.barRename.addEventListener('click', () => {
-  if (selected) startRename(selected);
+  if (current.kind === 'element') startRename(current.id);
 });
 ui.barDelete.addEventListener('click', deleteSelected);
 ui.barClose.addEventListener('click', () => select(null));
@@ -720,28 +689,27 @@ ui.relLabel.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') ui.relLabel.blur();
 });
 ui.relRetype.addEventListener('click', () => {
-  const index = selectedRelationship;
-  const relationship = index === null ? undefined : model?.relationships[index];
-  if (index === null || !relationship) return;
+  const index = selectedRelationship(current);
+  if (index === null || !selectedRelationshipModel()) return;
   const rect = ui.relRetype.getBoundingClientRect();
-  openPicker({ x: rect.left - 250, y: rect.top - 12 }, 'Change the type', (glyph) => {
-    if (relationshipsEditable()) commit(setRelationshipGlyph(source, index, glyph), `Changed the type to ${glyph}`);
+  openPicker({ x: rect.left - pickerWidth, y: rect.top - 12 }, 'Change the type', (glyph) => {
+    if (relationshipsEditable()) commit(setRelationshipGlyph(doc.source, index, glyph), `Changed the type to ${glyph}`);
   });
 });
 
 ui.layoutAuto.addEventListener('click', () => {
-  if (readLayout(source) !== 'custom') return;
-  commit(setLayout(source, 'architecture'), 'Auto layout · positions kept in the text');
+  if (readLayout(doc.source) !== 'custom') return;
+  commit(setLayout(doc.source, 'architecture'), 'Auto layout · positions kept in the text');
 });
 ui.layoutCustom.addEventListener('click', () => {
-  if (readLayout(source) === 'custom') return;
-  commit(toCustomLayout(placement(), source), 'Custom layout · elements pinned where they are');
+  if (readLayout(doc.source) === 'custom') return;
+  commit(toCustomLayout(placement(), doc.source), 'Custom layout · elements pinned where they are');
 });
 ui.undo.addEventListener('click', undo);
 ui.redo.addEventListener('click', redo);
 ui.errorOpen.addEventListener('click', () => {
   switchMode('code');
-  const first = diagnostics.find(({ severity }) => severity === 'error');
+  const first = doc.diagnostics.find(({ severity }) => severity === 'error');
   if (first) editor.revealDiagnostic(first);
 });
 ui.collapse.addEventListener('click', () => setCollapsed(true));
@@ -758,7 +726,7 @@ for (const item of ui.exportMenu.querySelectorAll<HTMLButtonElement>('[data-expo
 }
 
 ui.share.addEventListener('click', async () => {
-  const link = await shareLink(source);
+  const link = await shareLink(doc.source);
   history.replaceState(null, '', link);
   const result = (await copyText(link)) ? 'Link copied' : 'Link is in the address bar';
   const ask = starRequest();
@@ -766,12 +734,16 @@ ui.share.addEventListener('click', async () => {
   else showToast(result);
 });
 
-installCopyButton(() => source);
+installCopyButton(() => doc.source);
+
+function showTitle(title: string): void {
+  ui.title.value = title;
+  ui.fileName.textContent = `${fileBaseOf(title)}.mmd`;
+}
 
 function setTitle(title: string): void {
-  ui.title.value = title;
+  showTitle(title);
   writeStored(titleKey, title);
-  ui.fileName.textContent = `${fileBaseOf(ui.title.value)}.mmd`;
 }
 
 ui.title.addEventListener('change', () => setTitle(ui.title.value));
@@ -779,19 +751,19 @@ ui.title.addEventListener('change', () => setTitle(ui.title.value));
 // Opening replaces the whole diagram in one undo step. The notification's Undo also brings the old name back,
 // as long as nothing was edited since.
 function openDiagram(next: string, title: string, message: string): void {
-  const previous = { source, title: ui.title.value };
+  const previous = { source: doc.source, title: ui.title.value };
   if (next === previous.source && title === previous.title) return;
-  edits.record(source);
   select(null, false);
   setTitle(title);
   // A share link in the address would otherwise reopen the shared diagram on the next visit.
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   afterRender.push(() => fit(true));
-  replaceAll(next);
+  doc.replace(next);
+  showReplaced();
   showToast(message, {
     label: 'Undo',
     run: () => {
-      if (source !== next) return;
+      if (doc.source !== next) return;
       undo();
       setTitle(previous.title);
     },
@@ -833,7 +805,7 @@ const showArmedRelationship = buildPalette(
   { drop: dropOnCanvas },
 );
 
-window.addEventListener('resize', () => canvas.setSelection(selection()));
+window.addEventListener('resize', drawSelection);
 
 confirmTwice(ui.clear, clearCanvas);
 confirmTwice(ui.mClear, () => {
@@ -874,26 +846,7 @@ ui.toolConnect.addEventListener('click', () => {
   else setTool('connect');
 });
 // A finger has no scroll wheel, so touch screens start with the hand and a one-finger drag moves the canvas.
-setTool(matchMedia('(pointer: coarse)').matches ? 'hand' : 'select');
-
-// Space moves the canvas only while it is held, and only when it would not press a focused control.
-function holdsSpace(event: KeyboardEvent): boolean {
-  return (
-    event.key === ' ' &&
-    (event.target === document.body || (event.target instanceof Node && ui.canvas.contains(event.target)))
-  );
-}
-document.addEventListener('keydown', (event) => {
-  if (!holdsSpace(event)) return;
-  event.preventDefault();
-  canvas.spaceHeld = true;
-});
-document.addEventListener('keyup', (event) => {
-  if (event.key === ' ') canvas.spaceHeld = false;
-});
-window.addEventListener('blur', () => {
-  canvas.spaceHeld = false;
-});
+setTool(isCoarsePointer() ? 'hand' : 'select');
 
 // View mode still selects, so names, descriptions and relationships can be read, but its fields only show.
 function applyMode(next: Mode): void {
@@ -926,13 +879,12 @@ installTooltips();
 async function start(): Promise<void> {
   const shared = await decodeShareHash(location.hash);
   applyMode(readMode(shared.kind === 'source'));
-  ui.title.value = readStored(titleKey) ?? starterExample.title;
-  ui.fileName.textContent = `${fileBaseOf(ui.title.value)}.mmd`;
+  showTitle(readStored(titleKey) ?? starterExample.title);
   setCollapsed(readStored(collapsedKey) === '1');
-  source = shared.kind === 'source' ? shared.source : (readStored(sourceKey) ?? starterExample.source);
+  doc.load(shared.kind === 'source' ? shared.source : (readStored(sourceKey) ?? starterExample.source));
   if (shared.kind === 'invalid') showToast('That share link is damaged, so your last diagram opened instead.');
   showStorageState(shared.kind === 'source' ? 'shared' : 'saved');
-  editor.rewriteSource(source);
+  editor.rewriteSource(doc.source);
   await refresh();
 }
 

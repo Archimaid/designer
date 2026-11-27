@@ -10,6 +10,8 @@ import { glyphOf, nameOf } from './model.ts';
 import { readAnchor, readDescription, readRelationshipLine } from './source.ts';
 import { ui } from './ui.ts';
 
+const typeNames: ReadonlyMap<string, string> = new Map(Object.entries(relationshipNames));
+
 // Fills the element and relationship inspectors and the phone's selection bar. Which of them shows is the
 // selection's business; this only writes what they say.
 
@@ -68,8 +70,7 @@ export function renderRelationshipInspector(
   const line = readRelationshipLine(source, index);
   const anchor = readAnchor(source, index);
   ui.relGlyph.textContent = glyphOf(relationship);
-  const typeName = Object.entries(relationshipNames).find(([key]) => key === relationship.type)?.[1];
-  ui.relType.textContent = `${typeName ?? relationship.type} relationship`;
+  ui.relType.textContent = `${typeNames.get(relationship.type) ?? relationship.type} relationship`;
   ui.relId.textContent = relationship.id;
   ui.relFrom.textContent = nameOf(model, relationship.source) + (anchor.from ? ` · ${sideNames[anchor.from]}` : '');
   ui.relTo.textContent = nameOf(model, relationship.target) + (anchor.to ? ` · ${sideNames[anchor.to]}` : '');

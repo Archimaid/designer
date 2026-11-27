@@ -173,6 +173,28 @@ test('retypes, relabels, anchors and removes relationships', () => {
   assert.ok(!result.includes('orders ==> fulfil'));
 });
 
+test('relationship edits work on unspaced shorthand and keep comments and quoted %%', () => {
+  const tight = `archimate-beta
+  element businessRole clerk "Clerk"
+  element applicationService orders "Orders"
+  orders-->clerk : "50%% of it" %% why
+
+  positions {
+    orders-->clerk from T %% pinned
+  }`;
+  assert.deepEqual(errors(tight), []);
+  assert.equal(readRelationshipLabel(tight, 0), '50%% of it');
+  const relabelled = setRelationshipLabel(tight, 0, 'All');
+  assert.ok(relabelled.includes('  orders-->clerk : "All" %% why'));
+  assert.ok(relabelled.includes('    orders-->clerk from T %% pinned'));
+  const unlabelled = setRelationshipLabel(tight, 0, '');
+  assert.ok(unlabelled.includes('  orders-->clerk %% why'));
+  const retyped = setRelationshipGlyph(tight, 0, '==>');
+  assert.ok(retyped.includes('  orders==>clerk : "50%% of it" %% why'));
+  assert.ok(retyped.includes('    orders ==> clerk from T'));
+  assert.deepEqual(errors(retyped), []);
+});
+
 test('shifting makes room above and left without moving nested positions', () => {
   const result = shiftPositions(base, 2, 3, new Set(['clerk', 'oms']));
   assert.ok(result.includes('    clerk at 2 3\n    oms at 12 3'));

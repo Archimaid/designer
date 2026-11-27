@@ -2,6 +2,11 @@ import { relationshipChoices } from './relationships.ts';
 
 // The relationship picker that opens where a connection is released. One key picks a type.
 
+// The room the picker needs on screen: its 230px width in styles.css and the height of all eleven types,
+// each with a margin.
+export const pickerWidth = 250;
+const pickerHeight = 420;
+
 let open: (() => void) | undefined;
 
 export function closePicker(): void {
@@ -36,8 +41,8 @@ export function openPicker(client: { x: number; y: number }, title: string, choo
     button.addEventListener('click', () => pick(choice.glyph));
     picker.append(button);
   }
-  const left = Math.min(client.x + 12, window.innerWidth - 250);
-  const top = Math.min(client.y + 12, window.innerHeight - 420);
+  const left = Math.min(client.x + 12, window.innerWidth - pickerWidth);
+  const top = Math.min(client.y + 12, window.innerHeight - pickerHeight);
   picker.style.left = `${Math.max(12, left)}px`;
   picker.style.top = `${Math.max(12, top)}px`;
   document.body.append(picker);

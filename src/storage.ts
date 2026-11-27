@@ -1,4 +1,4 @@
-// Storage can be missing or throw (private browsing, blocked site data); the playground then just forgets.
+// Storage can be missing or throw (private browsing, blocked site data); the designer then just forgets.
 export function readStored(key: string): string | null {
   try {
     return localStorage.getItem(key);

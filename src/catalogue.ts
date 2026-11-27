@@ -1,4 +1,5 @@
 import { elementTypes } from 'archimaid/language';
+import { svgNamespace } from './dom.ts';
 
 export type Category = (typeof elementTypes)[keyof typeof elementTypes]['category'];
 
@@ -62,8 +63,6 @@ const typesByKey = new Map(paletteTypes.map((type) => [type.key, type]));
 export function paletteType(key: string): PaletteType | undefined {
   return typesByKey.get(key);
 }
-
-const svgNamespace = 'http://www.w3.org/2000/svg';
 
 export function iconSvg(type: Pick<PaletteType, 'icon'>): SVGSVGElement {
   const svg = document.createElementNS(svgNamespace, 'svg');
